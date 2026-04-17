@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/VCT-Fantasy/static/css/main.f6654b4b.css",
-    "main.js": "/VCT-Fantasy/static/js/main.9ed30812.js",
+    "main.js": "/VCT-Fantasy/static/js/main.d435f58d.js",
     "index.html": "/VCT-Fantasy/index.html",
     "main.f6654b4b.css.map": "/VCT-Fantasy/static/css/main.f6654b4b.css.map",
-    "main.9ed30812.js.map": "/VCT-Fantasy/static/js/main.9ed30812.js.map"
+    "main.d435f58d.js.map": "/VCT-Fantasy/static/js/main.d435f58d.js.map"
   },
   "entrypoints": [
     "static/css/main.f6654b4b.css",
-    "static/js/main.9ed30812.js"
+    "static/js/main.d435f58d.js"
   ]
 }
