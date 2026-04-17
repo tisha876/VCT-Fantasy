@@ -213,3 +213,41 @@ export const getMatchEvents = async (matchId) => {
     return [];
   }
 };
+export const getMatchesByStatus = async (status) => {
+  try {
+    const matchesRef = collection(db, "matches");
+    // status would be 'scheduled' for upcoming or 'finished' for historical data
+    const q = query(
+      matchesRef, 
+      where("status", "==", status), 
+      orderBy("startTime", status === "scheduled" ? "asc" : "desc")
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error(`Error fetching ${status} matches:`, error);
+    return [];
+  }
+};
+
+/**
+ * Fetches detailed statistics for a specific match to show in the info section.
+ */
+export const getMatchDetails = async (matchId) => {
+  try {
+    const matchRef = doc(db, "matches", matchId);
+    const matchSnap = await getDoc(matchRef);
+
+    if (matchSnap.exists()) {
+      return { id: matchSnap.id, ...matchSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching match details:", error);
+    throw error;
+  }
+};
