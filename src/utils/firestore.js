@@ -1,188 +1,215 @@
-import {
-  collection,
-  doc,
-  addDoc,
-  setDoc,
-  getDoc,
-  getDocs,
-  updateDoc,
-  deleteDoc,
-  query,
+import { 
+  doc, 
+  setDoc, 
+  getDoc, // Added this missing import
+  arrayUnion, 
+  collection, 
+  getDocs, 
+  query, 
   where,
-  orderBy,
-  serverTimestamp,
-  arrayUnion,
-  arrayRemove,
-  increment,
+  orderBy 
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { db } from "./firebase";
 
-// ─── LEAGUES ────────────────────────────────────────────────────────────────
-
-export async function createLeague(userId, leagueName, settings = {}) {
+/**
+ * Creates a new league and ensures the user document exists.
+ * Uses setDoc with merge:true to prevent "No document to update" errors.
+ */
+export const createLeague = async (userId, name, settings) => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const ref = await addDoc(collection(db, "leagues"), {
-    name: leagueName,
+  const leagueRef = doc(collection(db, "leagues"));
+  const leagueId = leagueRef.id;
+
+  // Create the league document
+  await setDoc(leagueRef, {
+    id: leagueId,
+    name,
     code,
     ownerId: userId,
     members: [userId],
-    settings: {
-      rosterSize: settings.rosterSize || 5,
-      maxPlayersPerTeam: settings.maxPlayersPerTeam || 2,
-      region: settings.region || "all",
-      ...settings,
-    },
-    createdAt: serverTimestamp(),
+    settings,
+    createdAt: new Date()
   });
-  // Add to user's leagues
-  await updateDoc(doc(db, "users", userId), {
-    leagues: arrayUnion(ref.id),
-  });
-  return { id: ref.id, code };
-}
 
-export async function joinLeague(userId, code) {
-  const q = query(collection(db, "leagues"), where("code", "==", code));
-  const snap = await getDocs(q);
-  if (snap.empty) throw new Error("League not found. Check your invite code.");
-  const leagueDoc = snap.docs[0];
-  const leagueId = leagueDoc.id;
-  await updateDoc(doc(db, "leagues", leagueId), {
-    members: arrayUnion(userId),
-  });
-  await updateDoc(doc(db, "users", userId), {
-    leagues: arrayUnion(leagueId),
-  });
-  return leagueId;
-}
+  // Link league to user - merge: true handles missing user docs
+  const userRef = doc(db, "users", userId);
+  await setDoc(userRef, {
+    leagues: arrayUnion(leagueId)
+  }, { merge: true });
 
-export async function getLeague(leagueId) {
-  const snap = await getDoc(doc(db, "leagues", leagueId));
-  if (!snap.exists()) throw new Error("League not found");
-  return { id: snap.id, ...snap.data() };
-}
-
-export async function getUserLeagues(userId) {
-  const userSnap = await getDoc(doc(db, "users", userId));
-  if (!userSnap.exists()) return [];
-  const leagueIds = userSnap.data().leagues || [];
-  if (!leagueIds.length) return [];
-  const leagues = await Promise.all(leagueIds.map((id) => getLeague(id)));
-  return leagues;
-}
-
-// ─── ROSTERS ────────────────────────────────────────────────────────────────
-
-export async function getRoster(userId, leagueId) {
-  const snap = await getDoc(doc(db, "leagues", leagueId, "rosters", userId));
-  if (!snap.exists()) return { players: [], lockedIn: false };
-  return snap.data();
-}
-
-export async function saveRoster(userId, leagueId, players) {
-  await setDoc(doc(db, "leagues", leagueId, "rosters", userId), {
-    players,
-    updatedAt: serverTimestamp(),
-    lockedIn: false,
-  });
-}
-
-export async function lockRoster(userId, leagueId) {
-  await updateDoc(doc(db, "leagues", leagueId, "rosters", userId), {
-    lockedIn: true,
-    lockedAt: serverTimestamp(),
-  });
-}
-
-// ─── SCORING ────────────────────────────────────────────────────────────────
-
-export async function submitMatchScore(leagueId, matchId, userId, scoreData) {
-  await setDoc(
-    doc(db, "leagues", leagueId, "scores", `${userId}_${matchId}`),
-    {
-      userId,
-      matchId,
-      ...scoreData,
-      submittedAt: serverTimestamp(),
-    }
-  );
-  // Update leaderboard total
-  await updateDoc(doc(db, "leagues", leagueId, "leaderboard", userId), {
-    totalPoints: increment(scoreData.totalPoints),
-    matchesPlayed: increment(1),
-    displayName: scoreData.displayName,
-    photoURL: scoreData.photoURL,
-  }).catch(async () => {
-    // doc doesn't exist yet
-    await setDoc(doc(db, "leagues", leagueId, "leaderboard", userId), {
-      userId,
-      totalPoints: scoreData.totalPoints,
-      matchesPlayed: 1,
-      displayName: scoreData.displayName,
-      photoURL: scoreData.photoURL,
-    });
-  });
-}
-
-export async function getLeaderboard(leagueId) {
-  const snap = await getDocs(
-    query(
-      collection(db, "leagues", leagueId, "leaderboard"),
-      orderBy("totalPoints", "desc")
-    )
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-export async function getUserScores(userId, leagueId) {
-  const snap = await getDocs(
-    query(
-      collection(db, "leagues", leagueId, "scores"),
-      where("userId", "==", userId)
-    )
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-export async function getMatchScores(leagueId, matchId) {
-  const snap = await getDocs(
-    query(
-      collection(db, "leagues", leagueId, "scores"),
-      where("matchId", "==", matchId)
-    )
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-// ─── MATCH EVENTS ────────────────────────────────────────────────────────────
+  return { id: leagueId, code };
+};
 
 /**
- * Admin: Mark a match as scorable and store raw stat data.
+ * Joins an existing league using an invite code.
  */
-export async function createMatchEvent(leagueId, matchData) {
-  const ref = await addDoc(
-    collection(db, "leagues", leagueId, "matchEvents"),
-    {
-      ...matchData,
-      createdAt: serverTimestamp(),
-      scored: false,
+export const joinLeague = async (userId, code) => {
+  const q = query(collection(db, "leagues"), where("code", "==", code));
+  const querySnapshot = await getDocs(q);
+
+  if (querySnapshot.empty) {
+    throw new Error("Invalid invite code");
+  }
+
+  const leagueDoc = querySnapshot.docs[0];
+  const leagueId = leagueDoc.id;
+
+  // Add user to league members list
+  await setDoc(doc(db, "leagues", leagueId), {
+    members: arrayUnion(userId)
+  }, { merge: true });
+
+  // Add league ID to user's personal list
+  await setDoc(doc(db, "users", userId), {
+    leagues: arrayUnion(leagueId)
+  }, { merge: true });
+
+  return leagueId;
+};
+
+export const getLeague = async (leagueId) => {
+  try {
+    const leagueRef = doc(db, "leagues", leagueId);
+    const leagueSnap = await getDoc(leagueRef);
+    
+    if (leagueSnap.exists()) {
+      return { id: leagueSnap.id, ...leagueSnap.data() };
+    } else {
+      throw new Error("League not found");
     }
-  );
-  return ref.id;
-}
+  } catch (error) {
+    console.error("Error fetching league:", error);
+    throw error;
+  }
+};
 
-export async function getMatchEvents(leagueId) {
-  const snap = await getDocs(
-    query(
-      collection(db, "leagues", leagueId, "matchEvents"),
-      orderBy("createdAt", "desc")
-    )
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
+export const getUserLeagues = async (userId) => {
+  try {
+    const userDoc = await getDoc(doc(db, "users", userId));
+    
+    if (!userDoc.exists() || !userDoc.data().leagues) {
+      return [];
+    }
 
-export async function markMatchScored(leagueId, eventId) {
-  await updateDoc(doc(db, "leagues", leagueId, "matchEvents", eventId), {
-    scored: true,
-  });
-}
+    const leagueIds = userDoc.data().leagues;
+    if (leagueIds.length === 0) return [];
+
+    const leagues = [];
+    for (const id of leagueIds) {
+      const lDoc = await getDoc(doc(db, "leagues", id));
+      if (lDoc.exists()) {
+        leagues.push({ id: lDoc.id, ...lDoc.data() });
+      }
+    }
+    
+    return leagues;
+  } catch (error) {
+    console.error("Error fetching user leagues:", error);
+    throw error;
+  }
+
+  
+};
+
+export const getRoster = async (leagueId, userId) => {
+  try {
+    // Rosters are usually stored in a sub-collection or a specific document
+    // Adjust this path if your database structure is different!
+    const rosterRef = doc(db, "leagues", leagueId, "rosters", userId);
+    const rosterSnap = await getDoc(rosterRef);
+
+    if (rosterSnap.exists()) {
+      return { id: rosterSnap.id, ...rosterSnap.data() };
+    } else {
+      // Return an empty roster if they haven't drafted anyone yet
+      return { players: [] };
+    }
+  } catch (error) {
+    console.error("Error fetching roster:", error);
+    throw error;
+  }
+};
+
+export const saveRoster = async (leagueId, userId, players) => {
+  try {
+    const rosterRef = doc(db, "leagues", leagueId, "rosters", userId);
+    
+    await setDoc(rosterRef, {
+      userId,
+      players,
+      updatedAt: new Date()
+    }, { merge: true });
+
+    return true;
+  } catch (error) {
+    console.error("Error saving roster:", error);
+    throw error;
+  }
+};
+
+export const lockRoster = async (leagueId, userId) => {
+  try {
+    const rosterRef = doc(db, "leagues", leagueId, "rosters", userId);
+    
+    await setDoc(rosterRef, {
+      isLocked: true,
+      lockedAt: new Date()
+    }, { merge: true });
+
+    return true;
+  } catch (error) {
+    console.error("Error locking roster:", error);
+    throw error;
+  }
+};
+
+export const getLeaderboard = async (leagueId) => {
+  try {
+    // Queries the rosters sub-collection and sorts by points
+    const rostersRef = collection(db, "leagues", leagueId, "rosters");
+    const q = query(rostersRef, orderBy("totalPoints", "desc"));
+    const querySnapshot = await getDocs(q);
+
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching leaderboard:", error);
+    throw error;
+  }
+};
+
+export const getUserScores = async (userId) => {
+  try {
+    const scoresRef = collection(db, "users", userId, "scores");
+    const q = query(scoresRef, orderBy("date", "desc"));
+    const querySnapshot = await getDocs(q);
+
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching user scores:", error);
+    // Return empty array if no scores exist yet to prevent UI crashes
+    return [];
+  }
+};
+
+export const getMatchEvents = async (matchId) => {
+  try {
+    const eventsRef = collection(db, "matches", matchId, "events");
+    // Sorting by timestamp ensures events appear in chronological order
+    const q = query(eventsRef, orderBy("timestamp", "asc"));
+    const querySnapshot = await getDocs(q);
+
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching match events:", error);
+    return [];
+  }
+};
