@@ -251,3 +251,45 @@ export const getMatchDetails = async (matchId) => {
     throw error;
   }
 };
+
+export const getMatchHighlights = async (limitCount = 5) => {
+  try {
+    const matchesRef = collection(db, "matches");
+    // Only get finished matches, sorted by most recent first
+    const q = query(
+      matchesRef, 
+      where("status", "==", "finished"), 
+      orderBy("startTime", "desc"),
+      limit(limitCount)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching match highlights:", error);
+    return [];
+  }
+};
+
+/**
+ * Fetches the top individual player performance from a specific match.
+ * Useful for the "Player of the Match" part of your highlight reel.
+ */
+export const getTopPerformance = async (matchId) => {
+  try {
+    const statsRef = collection(db, "matches", matchId, "playerStats");
+    const q = query(statsRef, orderBy("fantasyPoints", "desc"), limit(1));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      return { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching top performance:", error);
+    return null;
+  }
+};
