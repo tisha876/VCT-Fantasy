@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../utils/firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../utils/firebase";
 
 export default function Login() {
   const { signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   
-  // States
+  // States for UI and Form
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
@@ -28,19 +29,30 @@ export default function Login() {
     }
   }
 
-  // Handle Username/Password Auth
+  // Handle Username/Password Auth (Virtual Email Method)
   async function handleUsernameAuth(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    // Create the virtual email
+    // Create a virtual email for Firebase Auth
     const virtualEmail = `${formData.username}@valfantasy.internal`;
 
     try {
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, virtualEmail, formData.password);
+        // 1. Create the Auth account
+        const userCredential = await createUserWithEmailAndPassword(auth, virtualEmail, formData.password);
+        const user = userCredential.user;
+
+        // 2. Initialize the Firestore document (Fixes the "No document to update" error)
+        await setDoc(doc(db, "users", user.uid), {
+          username: formData.username,
+          leagues: [],
+          createdAt: new Date(),
+          method: "credentials"
+        });
       } else {
+        // Just sign in
         await signInWithEmailAndPassword(auth, virtualEmail, formData.password);
       }
       navigate("/");
@@ -58,7 +70,8 @@ export default function Login() {
     borderRadius: "4px",
     border: "1px solid #333",
     background: "#1a1a1a",
-    color: "white"
+    color: "white",
+    outline: "none"
   };
 
   return (
@@ -71,20 +84,24 @@ export default function Login() {
       background: "var(--bg)",
       padding: "2rem",
     }}>
+      {/* Logo Section */}
       <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
         <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>⚡</div>
-        <h1>VAL<span style={{ color: "var(--accent)" }}>Fantasy</span></h1>
+        <h1 style={{ marginBottom: "0.25rem" }}>
+          VAL<span style={{ color: "var(--accent)" }}>Fantasy</span>
+        </h1>
         <p style={{ color: "var(--text2)", fontSize: "0.95rem" }}>
           Fantasy esports for Valorant — compete with your friends
         </p>
       </div>
 
+      {/* Auth Card */}
       <div className="card" style={{ width: "100%", maxWidth: 420 }}>
         <h2 style={{ marginBottom: "1.5rem", textAlign: "center" }}>
           {isSignUp ? "Create Account" : "Sign In"}
         </h2>
 
-        {error && <div className="error-msg" style={{ marginBottom: "1rem" }}>{error}</div>}
+        {error && <div className="error-msg" style={{ marginBottom: "1rem", color: "#ff4655", textAlign: "center", fontSize: "0.85rem" }}>{error}</div>}
 
         {/* Username/Password Form */}
         <form onSubmit={handleUsernameAuth}>
@@ -106,7 +123,13 @@ export default function Login() {
             className="btn" 
             type="submit" 
             disabled={loading}
-            style={{ width: "100%", background: "var(--accent)", color: "white", marginBottom: "1rem" }}
+            style={{ 
+              width: "100%", 
+              background: "var(--accent)", 
+              color: "white", 
+              marginBottom: "1rem",
+              cursor: loading ? "not-allowed" : "pointer"
+            }}
           >
             {loading ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
           </button>
@@ -116,12 +139,12 @@ export default function Login() {
           OR
         </div>
 
-        {/* Google Button */}
+        {/* Google Login Button */}
         <button
           className="btn"
           onClick={handleGoogle}
           disabled={loading}
-          style={{ width: "100%", justifyContent: "center", gap: "0.75rem" }}
+          style={{ width: "100%", justifyContent: "center", gap: "0.75rem", padding: "0.75rem" }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -132,6 +155,7 @@ export default function Login() {
           Continue with Google
         </button>
 
+        {/* Toggle between Sign In and Sign Up */}
         <button 
           onClick={() => setIsSignUp(!isSignUp)}
           style={{ 
@@ -146,8 +170,13 @@ export default function Login() {
         >
           {isSignUp ? "Already have an account? Sign In" : "Don't want to use Google? Create a username"}
         </button>
+
+        <p style={{ color: "var(--text2)", fontSize: "0.78rem", textAlign: "center", marginTop: "1.25rem" }}>
+          This app is private — share your invite code with friends after signing in.
+        </p>
       </div>
 
+      {/* Feature Section */}
       <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", flexWrap: "wrap", justifyContent: "center" }}>
         {[
           ["🎯", "Draft pro players"],
