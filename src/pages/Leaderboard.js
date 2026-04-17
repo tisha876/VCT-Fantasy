@@ -45,6 +45,13 @@ export default function Leaderboard() {
 
   return (
     <div className="page">
+      {/* Back Button */}
+      <div style={{ marginBottom: "1rem" }}>
+        <Link to={`/league/${leagueId}`} className="btn btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+          ← Back to League
+        </Link>
+      </div>
+
       <div style={{ marginBottom: "1.5rem" }}>
         <div style={{ color: "var(--text2)", fontSize: "0.82rem", marginBottom: "0.25rem" }}>
           <Link to="/">Home</Link> / <Link to={`/league/${leagueId}`}>{league?.name}</Link> / Leaderboard

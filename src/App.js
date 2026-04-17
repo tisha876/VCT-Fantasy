@@ -5,11 +5,14 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import Pros from "./pages/Pros";
+import Leagues from "./pages/Leagues";
 import League from "./pages/League";
 import Draft from "./pages/Draft";
 import Leaderboard from "./pages/Leaderboard";
 import ScoreMatch from "./pages/ScoreMatch";
 import ScoringRules from "./pages/ScoringRules";
+import LiveMatches from "./pages/LiveMatches";
 import "./index.css";
 
 function PrivateRoute({ children }) {
@@ -31,6 +34,33 @@ function AppRoutes() {
           element={
             <PrivateRoute>
               <Dashboard />
+            </PrivateRoute>
+          }
+        />
+        
+        <Route
+          path="/leagues"
+          element={
+            <PrivateRoute>
+              <Leagues />
+            </PrivateRoute>
+          }
+        />
+        
+        <Route
+          path="/pros"
+          element={
+            <PrivateRoute>
+              <Pros />
+            </PrivateRoute>
+          }
+        />
+        
+        <Route
+          path="/live-matches"
+          element={
+            <PrivateRoute>
+              <LiveMatches />
             </PrivateRoute>
           }
         />

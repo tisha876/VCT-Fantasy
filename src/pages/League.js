@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getLeague, getRoster, getMatchEvents } from "../utils/firestore";
+import { calculateLeaguePoints } from "../utils/pointsCalculator";
 
 export default function League() {
   const { leagueId } = useParams();
@@ -9,11 +10,30 @@ export default function League() {
   const [league, setLeague] = useState(null);
   const [roster, setRoster] = useState([]);
   const [events, setEvents] = useState([]);
+  const [userPoints, setUserPoints] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     load();
+    // Set up interval to update points every 30 seconds
+    const interval = setInterval(updateUserPoints, 30000);
+    return () => clearInterval(interval);
   }, [leagueId]);
+
+  async function updateUserPoints() {
+    try {
+      const rosterData = await getRoster(user.uid, leagueId);
+      const players = rosterData.players || [];
+      if (players.length > 0) {
+        const result = await calculateLeaguePoints(players);
+        setUserPoints(result.total || 0);
+      } else {
+        setUserPoints(0);
+      }
+    } catch (e) {
+      console.error("Error calculating user points:", e);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -26,6 +46,14 @@ export default function League() {
       setLeague(l);
       setRoster(r.players || []);
       setEvents(e);
+      
+      // Calculate initial points
+      if ((r.players || []).length > 0) {
+        const result = await calculateLeaguePoints(r.players);
+        setUserPoints(result.total || 0);
+      } else {
+        setUserPoints(0);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -40,6 +68,13 @@ export default function League() {
 
   return (
     <div className="page">
+      {/* Back Button */}
+      <div style={{ marginBottom: "1rem" }}>
+        <Link to="/leagues" className="btn btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+          ← Back to Leagues
+        </Link>
+      </div>
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", marginBottom: "2rem", flexWrap: "wrap" }}>
         <div>
@@ -47,6 +82,17 @@ export default function League() {
             <Link to="/">Home</Link> / {league.name}
           </div>
           <h1>{league.name}</h1>
+          {userPoints !== null && (
+            <div style={{ 
+              fontSize: "1.1rem", 
+              fontWeight: 600, 
+              color: "var(--accent)", 
+              marginTop: "0.5rem",
+              marginBottom: "0.5rem"
+            }}>
+              💰 Your Points: {userPoints}
+            </div>
+          )}
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
             <span className="badge badge-accent">Code: {league.code}</span>
             <span className="badge badge-blue">{league.members?.length || 0} members</span>
@@ -111,44 +157,35 @@ export default function League() {
           )}
         </div>
 
-        {/* Recent Match Events */}
+        {/* Player Match Schedule */}
         <div className="card">
-          <h2 style={{ marginBottom: "1rem" }}>Match Events</h2>
-          {events.length === 0 ? (
+          <h2 style={{ marginBottom: "1rem" }}>Player Match Schedule</h2>
+          {roster.length === 0 ? (
             <div style={{ textAlign: "center", padding: "2rem 0", color: "var(--text2)" }}>
-              <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📭</div>
-              <p>No match events yet.</p>
-              {isOwner && (
-                <Link to={`/league/${leagueId}/score`} className="btn" style={{ marginTop: "1rem", display: "inline-flex" }}>
-                  Add match event
-                </Link>
-              )}
+              <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📅</div>
+              <p>Draft players to see their upcoming matches</p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {events.slice(0, 6).map((ev) => (
-                <div key={ev.id} style={{
-                  padding: "0.75rem",
-                  background: "var(--bg3)",
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--border)",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>
-                      {ev.team1} vs {ev.team2}
-                    </div>
-                    <span className={`badge ${ev.scored ? "badge-green" : "badge-yellow"}`}>
-                      {ev.scored ? "Scored" : "Pending"}
-                    </span>
-                  </div>
-                  <div style={{ color: "var(--text2)", fontSize: "0.77rem", marginTop: "0.25rem" }}>
-                    {ev.event || "VCT"} · {ev.date || ""}
-                  </div>
-                </div>
-              ))}
+              {/* This would be populated with actual player match data */}
+              <div style={{
+                padding: "1rem",
+                background: "var(--bg3)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border)",
+                textAlign: "center",
+                color: "var(--text2)"
+              }}>
+                <div style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>🔄</div>
+                <p>Match schedules will be available once the season begins</p>
+                <p style={{ fontSize: "0.9rem", marginTop: "0.5rem" }}>
+                  You'll see upcoming matches for your drafted players here
+                </p>
+              </div>
             </div>
           )}
         </div>
+
       </div>
 
       {/* Invite */}

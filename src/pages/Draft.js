@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getLeague, getRoster, saveRoster, lockRoster } from "../utils/firestore";
-import { getPlayers, getPlayer } from "../utils/vlrApi";
+import { getPlayers, getPlayer, getRecentResults, getPlayerMatchHistory } from "../utils/scraper";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 const REGIONS = [
   { value: "all", label: "All" },
@@ -36,9 +37,11 @@ export default function Draft() {
   const [saveMsg, setSaveMsg] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [recentMatches, setRecentMatches] = useState([]);
 
   useEffect(() => {
     load();
+    loadRecentMatches();
   }, [leagueId]);
 
   useEffect(() => {
@@ -51,6 +54,15 @@ export default function Draft() {
       setLeague(l);
       setRoster(r.players || []);
       setLocked(r.lockedIn || false);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadRecentMatches() {
+    try {
+      const matches = await getRecentResults(10);
+      setRecentMatches(matches);
     } catch (e) {
       console.error(e);
     }
@@ -156,6 +168,13 @@ export default function Draft() {
 
   return (
     <div className="page">
+      {/* Back Button */}
+      <div style={{ marginBottom: "1rem" }}>
+        <Link to={`/league/${leagueId}`} className="btn btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+          ← Back to League
+        </Link>
+      </div>
+
       <div style={{ marginBottom: "1.5rem" }}>
         <div style={{ color: "var(--text2)", fontSize: "0.82rem", marginBottom: "0.25rem" }}>
           <Link to="/">Home</Link> / <Link to={`/league/${leagueId}`}>{league?.name || "League"}</Link> / Draft
@@ -225,7 +244,7 @@ export default function Draft() {
                           {player.ign || player.alias || player.name}
                         </div>
                         <div style={{ color: "var(--text2)", fontSize: "0.76rem" }}>
-                          {player.team || player.current_team || "—"} · {player.country || ""}
+                          {player.team || player.current_team || "Free Agent"} · {player.country || player.region || ""}
                         </div>
                       </div>
                       <button
@@ -286,7 +305,9 @@ export default function Draft() {
                       <>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{p.ign || p.alias || p.name}</div>
-                          <div style={{ color: "var(--text2)", fontSize: "0.72rem" }}>{p.team || p.current_team}</div>
+                          <div style={{ color: "var(--text2)", fontSize: "0.72rem" }}>
+                            {p.team || p.current_team || "Free Agent"} · {p.country || p.region || ""}
+                          </div>
                         </div>
                         {!locked && (
                           <button className="btn btn-sm" style={{ padding: "0.2rem 0.5rem", opacity: 0.7 }} onClick={() => removePlayer(p)}>×</button>
@@ -331,6 +352,34 @@ export default function Draft() {
         </div>
       </div>
 
+      {/* Recent Matches for Research */}
+      <div className="card" style={{ marginTop: "2rem" }}>
+        <h2>Recent Matches (Research)</h2>
+        <p style={{ color: "var(--text2)", fontSize: "0.9rem", marginBottom: "1rem" }}>
+          Review recent match results to inform your player selections
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
+          {recentMatches.slice(0, 6).map((match) => (
+            <div key={match.id} style={{
+              padding: "1rem",
+              background: "var(--bg2)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)"
+            }}>
+              <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
+                {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
+              </div>
+              <div style={{ color: "var(--text2)", fontSize: "0.85rem", marginBottom: "0.5rem" }}>
+                {match.score || `${match.winner} won`}
+              </div>
+              <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                {match.date ? new Date(match.date).toLocaleDateString() : 'Recent'} · {match.tournament || match.event || 'VCT'}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Player detail modal */}
       {selectedPlayer && (
         <div style={{
@@ -358,17 +407,77 @@ export default function Draft() {
               selectedPlayer.detail && selectedPlayer.stats ? (
                 <div>
                   <h3 style={{ marginBottom: "0.75rem" }}>Agent stats (last 60 days)</h3>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
                     {(selectedPlayer.stats?.agents || []).slice(0, 5).map((a) => (
                       <span key={a.agent} className="badge badge-blue">{a.agent} ({a.games}g)</span>
                     ))}
                   </div>
+                  
                   {selectedPlayer.stats?.acs && (
-                    <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <div style={{ marginBottom: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
                       <span className="stat-pill"><span className="stat-label">ACS</span> {selectedPlayer.stats.acs}</span>
                       <span className="stat-pill"><span className="stat-label">K/D</span> {selectedPlayer.stats.kd}</span>
                       <span className="stat-pill"><span className="stat-label">HS%</span> {selectedPlayer.stats.hs}%</span>
                       <span className="stat-pill"><span className="stat-label">KPR</span> {selectedPlayer.stats.kpr}</span>
+                    </div>
+                  )}
+
+                  {/* Historical Performance Chart */}
+                  {selectedPlayer.stats?.recent_matches && selectedPlayer.stats.recent_matches.length > 0 && (
+                    <div style={{ marginTop: "1.5rem" }}>
+                      <h3 style={{ marginBottom: "0.75rem" }}>Recent Match Performance</h3>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={selectedPlayer.stats.recent_matches.slice(-10)}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                          <XAxis 
+                            dataKey="date" 
+                            stroke="var(--text2)" 
+                            fontSize={12}
+                            tickFormatter={(date) => new Date(date).toLocaleDateString()}
+                          />
+                          <YAxis stroke="var(--text2)" fontSize={12} />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
+                            labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="acs" 
+                            stroke="var(--accent)" 
+                            strokeWidth={2}
+                            name="ACS"
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="kills" 
+                            stroke="#ff4655" 
+                            strokeWidth={2}
+                            name="Kills"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  {/* Agent Performance Chart */}
+                  {selectedPlayer.stats?.agents && selectedPlayer.stats.agents.length > 0 && (
+                    <div style={{ marginTop: "1.5rem" }}>
+                      <h3 style={{ marginBottom: "0.75rem" }}>Agent Performance</h3>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={selectedPlayer.stats.agents.slice(0, 5)}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                          <XAxis 
+                            dataKey="agent" 
+                            stroke="var(--text2)" 
+                            fontSize={12}
+                          />
+                          <YAxis stroke="var(--text2)" fontSize={12} />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
+                          />
+                          <Bar dataKey="acs" fill="var(--accent)" name="ACS" />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   )}
                 </div>

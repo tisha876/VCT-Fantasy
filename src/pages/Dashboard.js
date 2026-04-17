@@ -1,30 +1,38 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { createLeague, joinLeague, getUserLeagues } from "../utils/firestore";
+import { getUpcomingMatches, getRecentResults, getLiveMatches } from "../utils/scraper";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [leagues, setLeagues] = useState([]);
+  const [upcomingMatches, setUpcomingMatches] = useState([]);
+  const [recentMatches, setRecentMatches] = useState([]);
+  const [liveMatches, setLiveMatches] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("leagues"); // leagues | create | join
-  const [leagueName, setLeagueName] = useState("");
-  const [region, setRegion] = useState("all");
-  const [rosterSize, setRosterSize] = useState(5);
-  const [joinCode, setJoinCode] = useState("");
-  const [msg, setMsg] = useState({ type: "", text: "" });
-  const [working, setWorking] = useState(false);
 
   useEffect(() => {
-    loadLeagues();
+    loadMatches();
+    
+    // Set up live updates every 10 seconds
+    const interval = setInterval(() => {
+      loadLiveMatches();
+    }, 10000);
+    
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadLeagues() {
+  async function loadMatches() {
     setLoading(true);
     try {
-      const data = await getUserLeagues(user.uid);
-      setLeagues(data);
+      const [upcoming, recent, live] = await Promise.all([
+        getUpcomingMatches(),
+        getRecentResults(10),
+        getLiveMatches()
+      ]);
+      setUpcomingMatches(upcoming);
+      setRecentMatches(recent);
+      setLiveMatches(live);
     } catch (e) {
       console.error(e);
     } finally {
@@ -32,190 +40,239 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!leagueName.trim()) return;
-    setWorking(true);
-    setMsg({});
+  async function loadLiveMatches() {
     try {
-      const { id, code } = await createLeague(user.uid, leagueName.trim(), { region, rosterSize: Number(rosterSize) });
-      setMsg({ type: "success", text: `League created! Invite code: ${code}` });
-      await loadLeagues();
-      setTimeout(() => navigate(`/league/${id}`), 1500);
+      const live = await getLiveMatches();
+      setLiveMatches(live);
     } catch (e) {
-      setMsg({ type: "error", text: e.message });
-    } finally {
-      setWorking(false);
+      console.error(e);
     }
   }
 
-  async function handleJoin(e) {
-    e.preventDefault();
-    if (!joinCode.trim()) return;
-    setWorking(true);
-    setMsg({});
-    try {
-      const id = await joinLeague(user.uid, joinCode.trim().toUpperCase());
-      setMsg({ type: "success", text: "Joined league!" });
-      await loadLeagues();
-      setTimeout(() => navigate(`/league/${id}`), 1000);
-    } catch (e) {
-      setMsg({ type: "error", text: e.message });
-    } finally {
-      setWorking(false);
-    }
-  }
+  const formatMatchTime = (match) => {
+    if (match.status?.toLowerCase().includes('live')) return 'LIVE';
+    if (match.time_until_match) return match.time_until_match;
+    if (match.date) return new Date(match.date).toLocaleDateString();
+    return 'TBD';
+  };
 
-  const REGIONS = [
-    { value: "all", label: "All regions" },
-    { value: "na", label: "North America" },
-    { value: "eu", label: "Europe" },
-    { value: "ap", label: "Asia-Pacific" },
-    { value: "la", label: "Latin America" },
-    { value: "br", label: "Brazil" },
-    { value: "kr", label: "Korea" },
-    { value: "jp", label: "Japan" },
-  ];
+  const getMatchStatusColor = (match) => {
+    if (match.status?.toLowerCase().includes('live')) return '#ff4655';
+    return 'var(--text2)';
+  };
+
+  const getMatchResult = (match) => {
+    const team1Name = match.team1 || match.teams?.[0]?.name || "Team 1";
+    const team2Name = match.team2 || match.teams?.[1]?.name || "Team 2";
+    
+    // Check for explicit winner field
+    if (match.winner) {
+      if (match.winner.includes(team1Name) || match.winner === "team1") {
+        return `${team1Name} won`;
+      } else if (match.winner.includes(team2Name) || match.winner === "team2") {
+        return `${team2Name} won`;
+      }
+      return `${match.winner} won`;
+    }
+    
+    // Parse score like "2-1" or "13-7, 13-8, 13-5" or series score
+    if (match.score) {
+      // Handle series score (e.g., "2-1", "2-0")
+      const scoreStr = match.score.toString().trim();
+      if (scoreStr.includes('-')) {
+        const scoreParts = scoreStr.split('-').map(s => s.trim());
+        if (scoreParts.length === 2) {
+          const team1Score = parseInt(scoreParts[0]);
+          const team2Score = parseInt(scoreParts[1]);
+          if (!isNaN(team1Score) && !isNaN(team2Score)) {
+            if (team1Score > team2Score) {
+              return `${team1Name} won ${scoreStr}`;
+            } else if (team2Score > team1Score) {
+              return `${team2Name} won ${scoreStr}`;
+            }
+          }
+        }
+      }
+      return match.score || 'Match completed';
+    }
+    
+    return 'Result pending';
+  };
 
   return (
     <div className="page">
-      {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
-        <h1>Welcome, {user.displayName?.split(" ")[0]} ⚡</h1>
+        <h1>Welcome to VALFantasy</h1>
         <p style={{ color: "var(--text2)", marginTop: "0.25rem" }}>
-          Your VALFantasy dashboard — create or join a private league with friends.
+          Track live matches, build your roster, and compete with friends
         </p>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--border)", paddingBottom: "1rem" }}>
-        {[["leagues", "My Leagues"], ["create", "Create League"], ["join", "Join League"]].map(([key, label]) => (
-          <button
-            key={key}
-            className="btn"
-            onClick={() => { setTab(key); setMsg({}); }}
-            style={{
-              background: tab === key ? "var(--accent)" : undefined,
-              borderColor: tab === key ? "var(--accent)" : undefined,
-              color: tab === key ? "#fff" : undefined,
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Scrolling Upcoming Matches */}
+      {upcomingMatches.length > 0 && (
+        <div style={{ 
+          marginBottom: "2rem", 
+          background: "var(--bg2)", 
+          border: "1px solid var(--border)", 
+          borderRadius: "var(--radius-sm)",
+          padding: "1rem",
+          overflow: "hidden"
+        }}>
+          <h3 style={{ marginBottom: "0.75rem", color: "var(--accent)" }}>🔥 Upcoming Matches</h3>
+          <div style={{
+            display: "flex",
+            gap: "1rem",
+            animation: "scroll 30s linear infinite",
+            whiteSpace: "nowrap"
+          }}>
+            {[...upcomingMatches, ...upcomingMatches].map((match, index) => (
+              <div key={`${match.id || index}`} style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 1rem",
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "0.85rem",
+                flexShrink: 0
+              }}>
+                <span>{match.team1 || match.teams?.[0]?.name || 'TBD'}</span>
+                <span style={{ color: "var(--text2)" }}>vs</span>
+                <span>{match.team2 || match.teams?.[1]?.name || 'TBD'}</span>
+                <span style={{ color: getMatchStatusColor(match), fontSize: "0.75rem" }}>
+                  {formatMatchTime(match)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <style>{`
+            @keyframes scroll {
+              0% { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+          `}</style>
+        </div>
+      )}
 
-      {/* My Leagues */}
-      {tab === "leagues" && (
-        <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+
+        {/* Live Matches */}
+        <div className="card">
+          <h2>🔴 Live Matches</h2>
           {loading ? (
             <div className="spinner" />
-          ) : leagues.length === 0 ? (
-            <div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-              <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>🏆</div>
-              <h2 style={{ marginBottom: "0.5rem" }}>No leagues yet</h2>
-              <p style={{ color: "var(--text2)", marginBottom: "1.5rem" }}>
-                Create a league and share the code with friends, or join one.
-              </p>
-              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center" }}>
-                <button className="btn btn-accent" onClick={() => setTab("create")}>Create a league</button>
-                <button className="btn" onClick={() => setTab("join")}>Join a league</button>
+          ) : liveMatches.length === 0 ? (
+            <div>
+              <p style={{ color: "var(--text2)", fontSize: "0.9rem", marginBottom: "1rem" }}>No live matches at the moment</p>
+              <h3 style={{ color: "var(--accent)", marginBottom: "0.75rem" }}>📅 Upcoming Matches</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {upcomingMatches.slice(0, 5).map((match) => (
+                  <div key={match.id} style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "0.75rem",
+                    background: "var(--bg2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)"
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                        {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
+                      </div>
+                      <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                        {formatMatchTime(match)}
+                      </div>
+                    </div>
+                    <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                      {match.tournament || match.event}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {leagues.map((league) => (
-                <Link key={league.id} to={`/league/${league.id}`} style={{ textDecoration: "none" }}>
-                  <div className="card" style={{ display: "flex", alignItems: "center", gap: "1.25rem", cursor: "pointer", transition: "border-color 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
-                  >
-                    <div style={{ fontSize: "2rem" }}>🏆</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--text)" }}>{league.name}</div>
-                      <div style={{ color: "var(--text2)", fontSize: "0.83rem", marginTop: "0.2rem" }}>
-                        {league.members?.length || 0} members · Code: <span style={{ color: "var(--accent)", fontWeight: 700, letterSpacing: "0.05em" }}>{league.code}</span>
-                        {" · "}{league.settings?.region?.toUpperCase() || "ALL"} region
-                        {" · "}{league.settings?.rosterSize || 5} players per roster
-                      </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {liveMatches.slice(0, 5).map((match) => (
+                <div key={match.id} style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.75rem",
+                  background: "var(--bg2)",
+                  border: "1px solid #ff465520",
+                  borderRadius: "var(--radius-sm)"
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                      {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
                     </div>
-                    <span style={{ color: "var(--text2)" }}>→</span>
+                    <div style={{ color: "#ff4655", fontSize: "0.8rem", fontWeight: 600 }}>
+                      LIVE - {match.score || match.current_score || 'Updating...'}
+                    </div>
                   </div>
-                </Link>
+                  <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                    {match.tournament || match.event}
+                  </div>
+                </div>
               ))}
             </div>
           )}
         </div>
-      )}
 
-      {/* Create */}
-      {tab === "create" && (
-        <div className="card" style={{ maxWidth: 480 }}>
-          <h2 style={{ marginBottom: "1.25rem" }}>Create a league</h2>
-          {msg.text && (
-            <div className={msg.type === "error" ? "error-msg" : "success-msg"} style={{ marginBottom: "1rem" }}>
-              {msg.text}
+        {/* Recent Results */}
+        <div className="card">
+          <h2>📊 Recent Results</h2>
+          {loading ? (
+            <div className="spinner" />
+          ) : recentMatches.length === 0 ? (
+            <p style={{ color: "var(--text2)", fontSize: "0.9rem" }}>No recent matches</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {recentMatches.slice(0, 5).map((match) => (
+                <div key={match.id} style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.75rem",
+                  background: "var(--bg2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)"
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                      {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
+                    </div>
+                    <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                      {getMatchResult(match)}
+                    </div>
+                  </div>
+                  <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
+                    {match.date ? new Date(match.date).toLocaleDateString() : 'Recent'}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-          <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div>
-              <label>League name</label>
-              <input
-                value={leagueName}
-                onChange={e => setLeagueName(e.target.value)}
-                placeholder="e.g. The Immortal League"
-                required
-              />
-            </div>
-            <div>
-              <label>Region focus</label>
-              <select value={region} onChange={e => setRegion(e.target.value)}>
-                {REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label>Roster size (players per team)</label>
-              <select value={rosterSize} onChange={e => setRosterSize(e.target.value)}>
-                {[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} players</option>)}
-              </select>
-            </div>
-            <button className="btn btn-accent" type="submit" disabled={working} style={{ justifyContent: "center" }}>
-              {working ? "Creating…" : "Create league"}
-            </button>
-          </form>
         </div>
-      )}
+      </div>
 
-      {/* Join */}
-      {tab === "join" && (
-        <div className="card" style={{ maxWidth: 420 }}>
-          <h2 style={{ marginBottom: "1.25rem" }}>Join a league</h2>
-          <p style={{ color: "var(--text2)", fontSize: "0.88rem", marginBottom: "1.25rem" }}>
-            Enter the 6-character invite code your friend shared with you.
-          </p>
-          {msg.text && (
-            <div className={msg.type === "error" ? "error-msg" : "success-msg"} style={{ marginBottom: "1rem" }}>
-              {msg.text}
-            </div>
-          )}
-          <form onSubmit={handleJoin} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div>
-              <label>Invite code</label>
-              <input
-                value={joinCode}
-                onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                placeholder="e.g. AB3X9Z"
-                maxLength={6}
-                style={{ letterSpacing: "0.15em", fontWeight: 700, fontSize: "1.1rem", textAlign: "center" }}
-                required
-              />
-            </div>
-            <button className="btn btn-accent" type="submit" disabled={working} style={{ justifyContent: "center" }}>
-              {working ? "Joining…" : "Join league"}
-            </button>
-          </form>
+      {/* Quick Actions */}
+      <div className="card" style={{ marginTop: "2rem" }}>
+        <h2>⚡ Quick Actions</h2>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <Link to="/live-matches" className="btn btn-accent">
+            🔴 View All Live Matches
+          </Link>
+          <Link to="/leagues" className="btn btn-accent">
+            🏆 View My Leagues
+          </Link>
+          <Link to="/scoring-rules" className="btn">
+            📋 Scoring Rules
+          </Link>
         </div>
-      )}
+      </div>
     </div>
   );
 }

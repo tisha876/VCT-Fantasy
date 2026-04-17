@@ -11,6 +11,12 @@ import {
   limit 
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { getPlayer, getUpcomingMatches, getRecentResults } from "./scraper";
+import { calculatePoints, determineMatchBonuses } from "./scoring";
+
+
+
+
 
 /**
  * Creates a new league and ensures the user document exists.
@@ -296,16 +302,18 @@ export const getTopPerformance = async (matchId) => {
 };
 export const getPlayerInfo = async (playerId) => {
   try {
+    const vlrData = await getPlayer(playerId).catch(() => null);
     const playerRef = doc(db, "players", playerId);
     const playerSnap = await getDoc(playerRef);
 
-    if (playerSnap.exists()) {
-      return { id: playerSnap.id, ...playerSnap.data() };
-    }
-    return null;
+    return {
+      id: playerId,
+      ...(playerSnap.exists() ? playerSnap.data() : {}),
+      vlrStats: vlrData || {}, // Populates the stats section you requested
+    };
   } catch (error) {
     console.error("Error fetching player info:", error);
-    throw error;
+    return { id: playerId, vlrStats: {} };
   }
 };
 
@@ -325,5 +333,39 @@ export const getPlayerRecentStats = async (playerId, limitCount = 5) => {
   } catch (error) {
     console.error("Error fetching recent stats:", error);
     return [];
+  }
+};
+
+
+/**
+ * Replaces "Match Events" with Upcoming and Past Match data.
+ */
+export const getLeagueMatches = async () => {
+  try {
+    const [upcoming, results] = await Promise.all([
+      getUpcomingMatches(),
+      getRecentResults(5) // Gets last 5 for the highlight reel
+    ]);
+
+    return {
+      upcoming,
+      past: results
+    };
+  } catch (error) {
+    console.error("Error fetching league matches:", error);
+    return { upcoming: [], past: [] };
+  }
+};
+
+export const getLeagueMatchData = async () => {
+  try {
+    const [upcoming, past] = await Promise.all([
+      getUpcomingMatches(),
+      getRecentResults(5) // Highlight reel for the last 5 matches
+    ]);
+    return { upcoming, past };
+  } catch (error) {
+    console.error("Error fetching match data:", error);
+    return { upcoming: [], past: [] };
   }
 };

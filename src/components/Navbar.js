@@ -40,6 +40,9 @@ export default function Navbar() {
         {/* Nav links */}
         <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", flex: 1 }}>
           <Link to="/" style={{ color: "var(--text2)", fontSize: "0.88rem" }}>Home</Link>
+          <Link to="/live-matches" style={{ color: "var(--text2)", fontSize: "0.88rem" }}>🔴 Live</Link>
+          <Link to="/pros" style={{ color: "var(--text2)", fontSize: "0.88rem" }}>Pros</Link>
+          <Link to="/leagues" style={{ color: "var(--text2)", fontSize: "0.88rem" }}>Leagues</Link>
           <Link to="/scoring-rules" style={{ color: "var(--text2)", fontSize: "0.88rem" }}>Scoring Rules</Link>
         </div>
 
