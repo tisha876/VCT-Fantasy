@@ -294,3 +294,36 @@ export const getTopPerformance = async (matchId) => {
     return null;
   }
 };
+export const getPlayerInfo = async (playerId) => {
+  try {
+    const playerRef = doc(db, "players", playerId);
+    const playerSnap = await getDoc(playerRef);
+
+    if (playerSnap.exists()) {
+      return { id: playerSnap.id, ...playerSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching player info:", error);
+    throw error;
+  }
+};
+
+/**
+ * Fetches recent performance stats for a player to show under "Player Info".
+ */
+export const getPlayerRecentStats = async (playerId, limitCount = 5) => {
+  try {
+    const statsRef = collection(db, "players", playerId, "recentStats");
+    const q = query(statsRef, orderBy("date", "desc"), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching recent stats:", error);
+    return [];
+  }
+};
