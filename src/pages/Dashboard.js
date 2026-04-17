@@ -1,276 +1,231 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getUpcomingMatches, getRecentResults, getLiveMatches } from "../utils/scraper";
+import { getMatches, getResults } from "../utils/vlrApi";
+import { getUserLeagues } from "../utils/firestore";
+
+function isLive(m) {
+  return (m.status||"").toLowerCase().includes("live") || (m.time_until_match||"").toLowerCase()==="live";
+}
+
+function MatchCard({ m, isResult }) {
+  const live = !isResult && isLive(m);
+  const t1    = m.team1 || m.team_a?.name || "TBD";
+  const t2    = m.team2 || m.team_b?.name || "TBD";
+  const score = m.score || (m.team_a?.score!=null ? `${m.team_a.score} – ${m.team_b?.score}` : null);
+  const time  = m.time_until_match || m.date || "";
+  const event = m.match_event || m.tournament || m.event || "";
+
+  return (
+    <div className={`match-card ${live?"live-card":""}`}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.5rem" }}>
+        <span style={{ fontSize:"0.68rem", color:"var(--text2)", maxWidth:"65%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{event}</span>
+        {live
+          ? <span className="badge badge-live" style={{ display:"flex",gap:4,alignItems:"center" }}><span className="live-dot" style={{width:5,height:5}}/>LIVE</span>
+          : isResult ? <span className="badge badge-gray">Final</span>
+          : <span style={{ fontSize:"0.7rem",color:"var(--text2)" }}>{time}</span>
+        }
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:"0.6rem" }}>
+        <div style={{ flex:1, textAlign:"right", fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"1rem" }}>{t1}</div>
+        <div style={{ minWidth:56, textAlign:"center" }}>
+          {score
+            ? <span style={{ fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"1.05rem", color: live?"var(--live)":"var(--text2)" }}>{score}</span>
+            : <span style={{ fontSize:"0.72rem", color:"var(--text3)" }}>VS</span>
+          }
+        </div>
+        <div style={{ flex:1, fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"1rem" }}>{t2}</div>
+      </div>
+    </div>
+  );
+}
+
+function ScrollingMatches({ matches }) {
+  if (!matches.length) return null;
+  const doubled = [...matches, ...matches];
+  return (
+    <div style={{ background:"var(--bg2)", border:"1px solid var(--border)", borderRadius:"var(--radius)", overflow:"hidden", padding:"0.75rem 0" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:"0.6rem", padding:"0 1rem 0.6rem", borderBottom:"1px solid var(--border)", marginBottom:"0.5rem" }}>
+        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--orange)" strokeWidth="1.5"/><path d="M6 3v3l2 1.5" stroke="var(--orange)" strokeWidth="1.2" strokeLinecap="round"/></svg>
+        <span style={{ fontFamily:"'Rajdhani',sans-serif", fontSize:"0.75rem", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text2)" }}>
+          Upcoming Matches
+        </span>
+      </div>
+      <div style={{ overflow:"hidden", padding:"0 0.5rem" }}>
+        <div style={{ display:"flex", gap:"0.6rem", animation:"ticker 40s linear infinite", width:"max-content" }}>
+          {doubled.map((m,i) => {
+            const t1 = m.team1 || m.team_a?.name || "TBD";
+            const t2 = m.team2 || m.team_b?.name || "TBD";
+            const time = m.time_until_match || "";
+            return (
+              <div key={i} style={{ display:"inline-flex", alignItems:"center", gap:"0.4rem", padding:"0.35rem 0.85rem", background:"var(--bg3)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", fontSize:"0.82rem", flexShrink:0, whiteSpace:"nowrap" }}>
+                <span style={{ fontWeight:600 }}>{t1}</span>
+                <span style={{ color:"var(--text3)" }}>vs</span>
+                <span style={{ fontWeight:600 }}>{t2}</span>
+                {time && <span style={{ color:"var(--text2)", fontSize:"0.72rem" }}>{time}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <style>{`@keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const navigate = useNavigate();
-  const [upcomingMatches, setUpcomingMatches] = useState([]);
-  const [recentMatches, setRecentMatches] = useState([]);
-  const [liveMatches, setLiveMatches] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [matchData, setMatchData]   = useState([]);
+  const [resultData, setResultData] = useState([]);
+  const [leagues, setLeagues]       = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [tab, setTab]               = useState("upcoming");
+  const timerRef = useRef(null);
+
+  async function load() {
+    try {
+      const [md, rd, ld] = await Promise.all([
+        getMatches().catch(()=>({segments:[]})),
+        getResults().catch(()=>({segments:[]})),
+        getUserLeagues(user.uid).catch(()=>[]),
+      ]);
+      setMatchData(md.segments||md.matches||md||[]);
+      setResultData((rd.segments||rd.results||rd||[]).slice(0,20));
+      setLeagues(ld);
+    } catch(_) {}
+    setLoading(false);
+  }
 
   useEffect(() => {
-    loadMatches();
-    
-    // Set up live updates every 10 seconds
-    const interval = setInterval(() => {
-      loadLiveMatches();
-    }, 10000);
-    
-    return () => clearInterval(interval);
+    load();
+    timerRef.current = setInterval(load, 10000);
+    return () => clearInterval(timerRef.current);
   }, []);
 
-  async function loadMatches() {
-    setLoading(true);
-    try {
-      const [upcoming, recent, live] = await Promise.all([
-        getUpcomingMatches(),
-        getRecentResults(10),
-        getLiveMatches()
-      ]);
-      setUpcomingMatches(upcoming);
-      setRecentMatches(recent);
-      setLiveMatches(live);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const liveMatches     = matchData.filter(isLive);
+  const upcomingMatches = matchData.filter(m => !isLive(m) && (m.time_until_match||"")!=="");
 
-  async function loadLiveMatches() {
-    try {
-      const live = await getLiveMatches();
-      setLiveMatches(live);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  const formatMatchTime = (match) => {
-    if (match.status?.toLowerCase().includes('live')) return 'LIVE';
-    if (match.time_until_match) return match.time_until_match;
-    if (match.date) return new Date(match.date).toLocaleDateString();
-    return 'TBD';
-  };
-
-  const getMatchStatusColor = (match) => {
-    if (match.status?.toLowerCase().includes('live')) return '#ff4655';
-    return 'var(--text2)';
-  };
-
-  const getMatchResult = (match) => {
-    const team1Name = match.team1 || match.teams?.[0]?.name || "Team 1";
-    const team2Name = match.team2 || match.teams?.[1]?.name || "Team 2";
-    
-    // Check for explicit winner field
-    if (match.winner) {
-      if (match.winner.includes(team1Name) || match.winner === "team1") {
-        return `${team1Name} won`;
-      } else if (match.winner.includes(team2Name) || match.winner === "team2") {
-        return `${team2Name} won`;
-      }
-      return `${match.winner} won`;
-    }
-    
-    // Parse score like "2-1" or "13-7, 13-8, 13-5" or series score
-    if (match.score) {
-      // Handle series score (e.g., "2-1", "2-0")
-      const scoreStr = match.score.toString().trim();
-      if (scoreStr.includes('-')) {
-        const scoreParts = scoreStr.split('-').map(s => s.trim());
-        if (scoreParts.length === 2) {
-          const team1Score = parseInt(scoreParts[0]);
-          const team2Score = parseInt(scoreParts[1]);
-          if (!isNaN(team1Score) && !isNaN(team2Score)) {
-            if (team1Score > team2Score) {
-              return `${team1Name} won ${scoreStr}`;
-            } else if (team2Score > team1Score) {
-              return `${team2Name} won ${scoreStr}`;
-            }
-          }
-        }
-      }
-      return match.score || 'Match completed';
-    }
-    
-    return 'Result pending';
-  };
+  const displayMatches = tab==="live" ? liveMatches : tab==="upcoming" ? upcomingMatches : resultData;
+  const medals = ["🥇","🥈","🥉"];
 
   return (
-    <div className="page">
-      <div style={{ marginBottom: "2rem" }}>
-        <h1>Welcome to VALFantasy</h1>
-        <p style={{ color: "var(--text2)", marginTop: "0.25rem" }}>
-          Track live matches, build your roster, and compete with friends
-        </p>
+    <div>
+      {/* Hero */}
+      <div className="hero">
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:"1rem", flexWrap:"wrap" }}>
+          <div>
+            <div style={{ color:"var(--text2)", fontSize:"0.76rem", fontWeight:600, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom:"0.4rem" }}>
+              Welcome back, {user.displayName?.split(" ")[0] || user.email?.split("@")[0]}
+            </div>
+            <h1 style={{ fontSize:"2.3rem", marginBottom:"0.4rem" }}>VAL<span style={{color:"var(--accent)"}}>Fantasy</span></h1>
+            <p style={{ color:"var(--text2)", maxWidth:460, fontSize:"0.93rem" }}>
+              Draft VCT pros, track live matches, and outperform your friends in a private fantasy league.
+            </p>
+          </div>
+          <div style={{ display:"flex", gap:"0.65rem", flexWrap:"wrap", paddingTop:"0.2rem" }}>
+            <Link to="/leagues"    className="btn btn-accent btn-lg">My Leagues</Link>
+            <Link to="/live-matches" className="btn btn-lg">🔴 Live</Link>
+          </div>
+        </div>
+
+        {liveMatches.length > 0 && (
+          <div style={{ marginTop:"1.25rem", display:"flex", alignItems:"center", gap:"0.7rem", padding:"0.65rem 1rem", background:"rgba(34,197,94,0.05)", border:"1px solid rgba(34,197,94,0.22)", borderRadius:"var(--radius-sm)" }}>
+            <span className="live-dot" />
+            <span style={{ color:"var(--live)", fontWeight:600, fontSize:"0.88rem" }}>
+              {liveMatches.length} match{liveMatches.length>1?"es":""} live now
+            </span>
+            <span style={{ color:"var(--text2)", fontSize:"0.8rem" }}>— scores auto-refresh every 10s</span>
+          </div>
+        )}
       </div>
 
-      {/* Scrolling Upcoming Matches */}
-      {upcomingMatches.length > 0 && (
-        <div style={{ 
-          marginBottom: "2rem", 
-          background: "var(--bg2)", 
-          border: "1px solid var(--border)", 
-          borderRadius: "var(--radius-sm)",
-          padding: "1rem",
-          overflow: "hidden"
-        }}>
-          <h3 style={{ marginBottom: "0.75rem", color: "var(--accent)" }}>🔥 Upcoming Matches</h3>
-          <div style={{
-            display: "flex",
-            gap: "1rem",
-            animation: "scroll 30s linear infinite",
-            whiteSpace: "nowrap"
-          }}>
-            {[...upcomingMatches, ...upcomingMatches].map((match, index) => (
-              <div key={`${match.id || index}`} style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                padding: "0.5rem 1rem",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "0.85rem",
-                flexShrink: 0
-              }}>
-                <span>{match.team1 || match.teams?.[0]?.name || 'TBD'}</span>
-                <span style={{ color: "var(--text2)" }}>vs</span>
-                <span>{match.team2 || match.teams?.[1]?.name || 'TBD'}</span>
-                <span style={{ color: getMatchStatusColor(match), fontSize: "0.75rem" }}>
-                  {formatMatchTime(match)}
-                </span>
-              </div>
-            ))}
+      <div style={{ maxWidth:1120, margin:"0 auto", padding:"0 1.5rem 2.5rem" }}>
+        {/* Scrolling upcoming */}
+        {!loading && upcomingMatches.length > 0 && (
+          <div style={{ marginBottom:"1.5rem" }}>
+            <ScrollingMatches matches={upcomingMatches.slice(0,16)} />
           </div>
-          <style>{`
-            @keyframes scroll {
-              0% { transform: translateX(0); }
-              100% { transform: translateX(-50%); }
-            }
-          `}</style>
-        </div>
-      )}
+        )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:"1.5rem", alignItems:"start" }}>
+          {/* Main: match feed */}
+          <div>
+            {/* Stat row */}
+            <div className="grid-4" style={{ marginBottom:"1.25rem" }}>
+              {[
+                { label:"Live",     val: loading?"—":liveMatches.length,     color:"var(--live)" },
+                { label:"Upcoming", val: loading?"—":upcomingMatches.length, color:"var(--blue)" },
+                { label:"Results",  val: loading?"—":resultData.length,      color:"var(--text2)" },
+                { label:"Leagues",  val: loading?"—":leagues.length,         color:"var(--yellow)" },
+              ].map(({label,val,color}) => (
+                <div key={label} className="card card-flat" style={{ textAlign:"center", padding:"1rem 0.75rem" }}>
+                  <div style={{ fontFamily:"'Rajdhani',sans-serif", fontSize:"1.8rem", fontWeight:700, color }}>{val}</div>
+                  <div style={{ fontSize:"0.7rem", color:"var(--text2)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+                </div>
+              ))}
+            </div>
 
-        {/* Live Matches */}
-        <div className="card">
-          <h2>🔴 Live Matches</h2>
-          {loading ? (
-            <div className="spinner" />
-          ) : liveMatches.length === 0 ? (
-            <div>
-              <p style={{ color: "var(--text2)", fontSize: "0.9rem", marginBottom: "1rem" }}>No live matches at the moment</p>
-              <h3 style={{ color: "var(--accent)", marginBottom: "0.75rem" }}>📅 Upcoming Matches</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {upcomingMatches.slice(0, 5).map((match) => (
-                  <div key={match.id} style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "0.75rem",
-                    background: "var(--bg2)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-sm)"
-                  }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                        {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
-                      </div>
-                      <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                        {formatMatchTime(match)}
-                      </div>
-                    </div>
-                    <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                      {match.tournament || match.event}
-                    </div>
-                  </div>
+            {/* Tabs */}
+            <div className="tabs">
+              {liveMatches.length>0 && (
+                <button className={`tab-btn ${tab==="live"?"active":""}`} onClick={()=>setTab("live")}>
+                  <span style={{display:"flex",alignItems:"center",gap:5}}><span className="live-dot"/>Live ({liveMatches.length})</span>
+                </button>
+              )}
+              <button className={`tab-btn ${tab==="upcoming"?"active":""}`} onClick={()=>setTab("upcoming")}>Upcoming</button>
+              <button className={`tab-btn ${tab==="results"?"active":""}`} onClick={()=>setTab("results")}>Results</button>
+            </div>
+
+            {loading ? <div className="spinner"/> : displayMatches.length===0 ? (
+              <div style={{ color:"var(--text2)", textAlign:"center", padding:"2rem" }}>No matches found.</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:"0.6rem" }}>
+                {displayMatches.slice(0,18).map((m,i) => (
+                  <MatchCard key={i} m={m} isResult={tab==="results"} />
                 ))}
               </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {liveMatches.slice(0, 5).map((match) => (
-                <div key={match.id} style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "0.75rem",
-                  background: "var(--bg2)",
-                  border: "1px solid #ff465520",
-                  borderRadius: "var(--radius-sm)"
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                      {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
-                    </div>
-                    <div style={{ color: "#ff4655", fontSize: "0.8rem", fontWeight: 600 }}>
-                      LIVE - {match.score || match.current_score || 'Updating...'}
-                    </div>
-                  </div>
-                  <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                    {match.tournament || match.event}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Recent Results */}
-        <div className="card">
-          <h2>📊 Recent Results</h2>
-          {loading ? (
-            <div className="spinner" />
-          ) : recentMatches.length === 0 ? (
-            <p style={{ color: "var(--text2)", fontSize: "0.9rem" }}>No recent matches</p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {recentMatches.slice(0, 5).map((match) => (
-                <div key={match.id} style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "0.75rem",
-                  background: "var(--bg2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)"
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                      {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
-                    </div>
-                    <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                      {getMatchResult(match)}
-                    </div>
-                  </div>
-                  <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                    {match.date ? new Date(match.date).toLocaleDateString() : 'Recent'}
-                  </div>
-                </div>
-              ))}
+          {/* Sidebar: leagues */}
+          <div>
+            <div className="sec-hdr">
+              <span className="sec-title">My Leagues</span>
+              <Link to="/leagues" className="btn btn-xs btn-ghost" style={{ fontSize:"0.76rem" }}>Manage →</Link>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Quick Actions */}
-      <div className="card" style={{ marginTop: "2rem" }}>
-        <h2>⚡ Quick Actions</h2>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-          <Link to="/live-matches" className="btn btn-accent">
-            🔴 View All Live Matches
-          </Link>
-          <Link to="/leagues" className="btn btn-accent">
-            🏆 View My Leagues
-          </Link>
-          <Link to="/scoring-rules" className="btn">
-            📋 Scoring Rules
-          </Link>
+            {leagues.length===0 ? (
+              <div className="card" style={{ textAlign:"center", padding:"2rem 1rem" }}>
+                <div style={{ fontSize:"1.75rem", marginBottom:"0.6rem" }}>🏆</div>
+                <div style={{ fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"1.05rem", marginBottom:"0.35rem" }}>No leagues yet</div>
+                <p style={{ color:"var(--text2)", fontSize:"0.82rem", marginBottom:"1rem" }}>Create a private league and invite your crew.</p>
+                <Link to="/leagues" className="btn btn-accent btn-sm" style={{ display:"inline-flex" }}>Get started</Link>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:"0.55rem" }}>
+                {leagues.map(l => (
+                  <Link key={l.id} to={`/league/${l.id}`} style={{ textDecoration:"none" }}>
+                    <div className="card card-sm" style={{ cursor:"pointer" }}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(255,70,85,0.4)"}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}
+                    >
+                      <div style={{ fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"1rem", marginBottom:"0.35rem" }}>{l.name}</div>
+                      <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap", marginBottom:"0.6rem" }}>
+                        <span className="badge badge-gray">{l.members?.length||0} members</span>
+                        <span className="badge badge-accent" style={{ fontFamily:"monospace" }}>{l.code}</span>
+                        <span className="badge badge-gray">{l.settings?.region?.toUpperCase()||"ALL"}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:"0.4rem" }}>
+                        <Link to={`/league/${l.id}/draft`} className="btn btn-xs btn-accent" onClick={e=>e.stopPropagation()}>Draft</Link>
+                        <Link to={`/league/${l.id}/leaderboard`} className="btn btn-xs" onClick={e=>e.stopPropagation()}>Board</Link>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+                <Link to="/leagues" className="btn btn-sm" style={{ justifyContent:"center" }}>+ Create / Join</Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

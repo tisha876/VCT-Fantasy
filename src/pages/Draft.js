@@ -1,509 +1,454 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getLeague, getRoster, saveRoster, lockRoster } from "../utils/firestore";
-import { getPlayers, getPlayer, getRecentResults, getPlayerMatchHistory } from "../utils/scraper";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { getPlayers, getPlayer, getRecentResults } from "../utils/vlrApi";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const REGIONS = [
-  { value: "all", label: "All" },
-  { value: "na", label: "NA" },
-  { value: "eu", label: "EU" },
-  { value: "ap", label: "AP" },
-  { value: "la", label: "LA" },
-  { value: "br", label: "BR" },
-  { value: "kr", label: "KR" },
+  {value:"all",label:"All regions"},{value:"na",label:"NA"},{value:"eu",label:"EU"},
+  {value:"ap",label:"AP"},{value:"la",label:"LA"},{value:"br",label:"BR"},{value:"kr",label:"KR"},
 ];
+
+function Avatar({ p, size=34 }) {
+  const name = p?.ign||p?.alias||p?.name||"?";
+  if (p?.img) return <img src={p.img} alt="" className="player-avatar" style={{width:size,height:size}} onError={e=>e.target.style.display="none"}/>;
+  return <div className="player-avatar-placeholder" style={{width:size,height:size,fontSize:size*0.32}}>{name.slice(0,2).toUpperCase()}</div>;
+}
+
+function StatBar({ label, value, max, color="var(--accent)" }) {
+  const pct = max>0 ? Math.min(100,(value/max)*100) : 0;
+  return (
+    <div className="bar-row">
+      <div className="bar-label">{label}</div>
+      <div className="bar-track"><div className="bar-fill" style={{width:`${pct}%`,background:color}}/></div>
+      <div className="bar-val">{typeof value==="number" ? (Number.isInteger(value)?value:value.toFixed(1)) : (value??"-")}</div>
+    </div>
+  );
+}
+
+function PlayerModal({ player, onClose, onAdd, onRemove, isOnRoster, isLocked, canAdd }) {
+  const [detail, setDetail]   = useState(null);
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState("stats");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const id = player.id || player.player_id;
+        if (id) {
+          const d = await getPlayer(id).catch(()=>null);
+          setDetail(d);
+        }
+        const res = await getRecentResults(30).catch(()=>[]);
+        const team = player.team || player.current_team || detail?.team || "";
+        if (team) {
+          const key = team.toLowerCase().slice(0,5);
+          setMatches(res.filter(m => (m.team1||"").toLowerCase().includes(key)||(m.team2||"").toLowerCase().includes(key)).slice(0,8));
+        }
+      } catch(_) {}
+      setLoading(false);
+    })();
+  }, [player]);
+
+  const name   = player.ign||player.alias||player.name;
+  const team   = detail?.team || detail?.current_team || player.team || player.current_team || "Free Agent";
+  const country= detail?.country || player.country || "";
+  const region2= detail?.region  || player.region  || "";
+  const stats  = detail?.stats   || player.stats   || {};
+
+  const chartStats = [
+    { label:"ACS",  value:parseFloat(stats.acs||0),  max:400, color:"var(--accent)" },
+    { label:"K/D",  value:parseFloat(stats.kd||0),   max:3,   color:"var(--green)" },
+    { label:"KAST", value:parseFloat(stats.kast||0), max:100, color:"var(--blue)" },
+    { label:"HS%",  value:parseFloat(stats.hs||0),   max:60,  color:"var(--yellow)" },
+    { label:"KPR",  value:parseFloat(stats.kpr||0),  max:1.5, color:"var(--purple)" },
+    { label:"APR",  value:parseFloat(stats.apr||0),  max:1,   color:"var(--orange)" },
+  ].filter(s=>s.value>0);
+
+  const agentData = (stats.agents||[]).slice(0,5).map(a=>({
+    agent: a.agent||a.name, games: parseInt(a.games||a.played||0),
+    acs: parseFloat(a.acs||a.rating||0),
+  }));
+
+  const recentMatchData = (stats.recent_matches||[]).slice(-10).map((m,i)=>({
+    name: `M${i+1}`, acs: parseFloat(m.acs||0), kills: parseInt(m.kills||0),
+  })).filter(m=>m.acs>0||m.kills>0);
+
+  const tooltipStyle = { backgroundColor:"var(--bg3)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", fontSize:"0.78rem" };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{ display:"flex", gap:"0.9rem", marginBottom:"1.1rem", alignItems:"center" }}>
+          <Avatar p={{...player,img:player.img}} size={50}/>
+          <div style={{flex:1}}>
+            <h2 style={{marginBottom:"0.25rem"}}>{name}</h2>
+            <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
+              <span className="badge badge-gray">{team}</span>
+              {country && <span className="badge badge-blue">{country}</span>}
+              {region2 && <span className="badge badge-purple">{region2.toUpperCase()}</span>}
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose} style={{fontSize:"1.1rem",lineHeight:1}}>×</button>
+        </div>
+
+        {/* Tabs */}
+        <div className="tabs" style={{marginBottom:"1rem"}}>
+          {[["stats","Stats & Charts"],["agents","Agents"],["matches","Team History"]].map(([k,l])=>(
+            <button key={k} className={`tab-btn ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</button>
+          ))}
+        </div>
+
+        {loading ? <div className="spinner"/> : (
+          <>
+            {tab==="stats" && (
+              <div>
+                {/* Stat pills */}
+                <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", marginBottom:"1.1rem" }}>
+                  {[
+                    {l:"ACS",v:stats.acs},{l:"K/D",v:stats.kd},
+                    {l:"KAST",v:stats.kast?`${stats.kast}%`:null},
+                    {l:"HS%",v:stats.hs?`${stats.hs}%`:null},
+                    {l:"KPR",v:stats.kpr},{l:"APR",v:stats.apr},
+                    {l:"FK",v:stats.fk||stats.first_kills},
+                  ].filter(s=>s.v!=null&&s.v!=="").map(({l,v})=>(
+                    <div key={l} className="stat-pill"><span className="stat-val">{v}</span><span className="stat-lbl">{l}</span></div>
+                  ))}
+                </div>
+
+                {/* Bar charts */}
+                {chartStats.length>0 ? (
+                  <>
+                    <div style={{ fontSize:"0.7rem", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em", color:"var(--text2)", marginBottom:"0.7rem" }}>
+                      Performance (last 60 days)
+                    </div>
+                    {chartStats.map(s=><StatBar key={s.label} label={s.label} value={s.value} max={s.max} color={s.color}/>)}
+                  </>
+                ) : <p style={{color:"var(--text2)",fontSize:"0.85rem"}}>No stat data available for this player.</p>}
+
+                {/* Line chart for recent matches */}
+                {recentMatchData.length>2 && (
+                  <div style={{marginTop:"1.25rem"}}>
+                    <div style={{fontSize:"0.7rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text2)",marginBottom:"0.6rem"}}>Recent match ACS trend</div>
+                    <ResponsiveContainer width="100%" height={150}>
+                      <LineChart data={recentMatchData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
+                        <XAxis dataKey="name" stroke="var(--text2)" fontSize={11}/>
+                        <YAxis stroke="var(--text2)" fontSize={11}/>
+                        <Tooltip contentStyle={tooltipStyle}/>
+                        <Line type="monotone" dataKey="acs" stroke="var(--accent)" strokeWidth={2} dot={{r:3}} name="ACS"/>
+                        <Line type="monotone" dataKey="kills" stroke="var(--green)" strokeWidth={2} dot={{r:3}} name="Kills"/>
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab==="agents" && (
+              <div>
+                <div style={{fontSize:"0.7rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text2)",marginBottom:"0.7rem"}}>Agent pool (games played)</div>
+                {agentData.length===0
+                  ? <p style={{color:"var(--text2)",fontSize:"0.85rem"}}>No agent data available.</p>
+                  : (
+                    <>
+                      {agentData.map(a=><StatBar key={a.agent} label={a.agent} value={a.games} max={Math.max(...agentData.map(x=>x.games))||1} color="var(--purple)"/>)}
+                      {agentData.some(a=>a.acs>0) && (
+                        <div style={{marginTop:"1rem"}}>
+                          <div style={{fontSize:"0.7rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text2)",marginBottom:"0.6rem"}}>ACS per agent</div>
+                          <ResponsiveContainer width="100%" height={130}>
+                            <BarChart data={agentData}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
+                              <XAxis dataKey="agent" stroke="var(--text2)" fontSize={11}/>
+                              <YAxis stroke="var(--text2)" fontSize={11}/>
+                              <Tooltip contentStyle={tooltipStyle}/>
+                              <Bar dataKey="acs" fill="var(--accent)" name="ACS" radius={[3,3,0,0]}/>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </>
+                  )
+                }
+              </div>
+            )}
+
+            {tab==="matches" && (
+              <div>
+                <div style={{fontSize:"0.7rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text2)",marginBottom:"0.7rem"}}>
+                  Recent matches for {team} (research)
+                </div>
+                {matches.length===0
+                  ? <p style={{color:"var(--text2)",fontSize:"0.85rem"}}>No match history found for this team.</p>
+                  : matches.map((m,i)=>{
+                    const t1=m.team1||m.team_a?.name||"?";
+                    const t2=m.team2||m.team_b?.name||"?";
+                    const score=m.score||(m.team_a?.score!=null?`${m.team_a.score}–${m.team_b?.score}`:"");
+                    return (
+                      <div key={i} style={{ display:"flex",alignItems:"center",gap:"0.6rem",padding:"0.45rem 0",borderBottom:"1px solid var(--border)" }}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:"0.85rem",fontWeight:500}}>{t1} vs {t2}</div>
+                          <div style={{fontSize:"0.72rem",color:"var(--text2)"}}>{m.match_event||m.tournament||m.event||""}{m.date?` · ${m.date}`:""}</div>
+                        </div>
+                        {score && <span style={{fontFamily:"'Rajdhani',sans-serif",fontWeight:700,color:"var(--text2)",fontSize:"0.95rem"}}>{score}</span>}
+                        <span className="badge badge-gray">Final</span>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Footer buttons */}
+        <div style={{ display:"flex",gap:"0.6rem",marginTop:"1.25rem",paddingTop:"1rem",borderTop:"1px solid var(--border)" }}>
+          {!isLocked && (
+            isOnRoster
+              ? <button className="btn" onClick={()=>{onRemove(player);onClose();}}>Remove from roster</button>
+              : <button className="btn btn-accent" disabled={!canAdd} onClick={()=>{onAdd(player);onClose();}}>{canAdd?"Add to roster":"Roster full"}</button>
+          )}
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Draft() {
   const { leagueId } = useParams();
-  const { user } = useAuth();
-  const navigate = useNavigate();
+  const { user }     = useAuth();
 
-  const [league, setLeague] = useState(null);
-  const [roster, setRoster] = useState([]);
-  const [locked, setLocked] = useState(false);
-
-  // Search state
+  const [league, setLeague]   = useState(null);
+  const [roster, setRoster]   = useState([]);
+  const [locked, setLocked]   = useState(false);
   const [players, setPlayers] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [region, setRegion] = useState("all");
-  const [page, setPage] = useState(1);
-  const [loadingPlayers, setLoadingPlayers] = useState(false);
-  const [apiError, setApiError] = useState("");
+  const [search, setSearch]   = useState("");
+  const [region, setRegion]   = useState("all");
+  const [page, setPage]       = useState(1);
+  const [loadingP, setLoadingP] = useState(false);
+  const [apiErr, setApiErr]   = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [saveMsg, setSaveMsg] = useState({type:"",text:""});
+  const [selPlayer, setSelPlayer] = useState(null);
 
-  // UI state
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [recentMatches, setRecentMatches] = useState([]);
+  useEffect(() => { loadLeague(); }, [leagueId]);
+  useEffect(() => { fetchPlayers(); }, [region, page]);
 
-  useEffect(() => {
-    load();
-    loadRecentMatches();
-  }, [leagueId]);
-
-  useEffect(() => {
-    fetchPlayers();
-  }, [region, page]);
-
-  async function load() {
+  async function loadLeague() {
     try {
-      const [l, r] = await Promise.all([getLeague(leagueId), getRoster(user.uid, leagueId)]);
-      setLeague(l);
-      setRoster(r.players || []);
-      setLocked(r.lockedIn || false);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function loadRecentMatches() {
-    try {
-      const matches = await getRecentResults(10);
-      setRecentMatches(matches);
-    } catch (e) {
-      console.error(e);
-    }
+      const [l,r] = await Promise.all([getLeague(leagueId), getRoster(user.uid, leagueId)]);
+      setLeague(l); setRoster(r.players||[]); setLocked(r.lockedIn||false);
+    } catch(e){ console.error(e); }
   }
 
   async function fetchPlayers() {
-    setLoadingPlayers(true);
-    setApiError("");
+    setLoadingP(true); setApiErr("");
     try {
       const data = await getPlayers(region, 30, page);
-      const list = data.players || data.segments || data || [];
-      setPlayers(list);
-    } catch (e) {
-      setApiError("Could not load players from VLR API. Check your connection.");
-    } finally {
-      setLoadingPlayers(false);
-    }
+      setPlayers(data.players||data.segments||data||[]);
+    } catch(_){ setApiErr("Could not load players. The VLR API may be temporarily unavailable."); }
+    finally { setLoadingP(false); }
   }
 
-  const rosterSize = league?.settings?.rosterSize || 5;
+  const rosterSize  = league?.settings?.rosterSize || 5;
+  const maxPerTeam  = league?.settings?.maxPlayersPerTeam || 2;
 
-  const filteredPlayers = players.filter((p) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (p.name || "").toLowerCase().includes(q) ||
-      (p.ign || "").toLowerCase().includes(q) ||
-      (p.alias || "").toLowerCase().includes(q) ||
-      (p.team || "").toLowerCase().includes(q) ||
-      (p.current_team || "").toLowerCase().includes(q)
-    );
+  const filtered = players.filter(p => {
+    const q = search.toLowerCase();
+    return !q || [p.ign,p.name,p.alias,p.team,p.current_team].some(f=>(f||"").toLowerCase().includes(q));
   });
 
-  function isOnRoster(player) {
-    const id = player.id || player.player_id;
-    return roster.some((r) => (r.id || r.player_id) === id);
-  }
+  function getId(p) { return p.id||p.player_id||p.ign; }
+  function isOnRoster(p) { return roster.some(r=>getId(r)===getId(p)); }
+  function teamCnt(name) { return roster.filter(r=>(r.team||r.current_team)===name).length; }
+  function teamMaxed(p) { const t=p.team||p.current_team; return t?teamCnt(t)>=maxPerTeam:false; }
+  function canAdd(p)    { return roster.length<rosterSize && !isOnRoster(p) && !teamMaxed(p); }
 
-  function addPlayer(player) {
-    if (roster.length >= rosterSize) return;
-    if (isOnRoster(player)) return;
-    setRoster((prev) => [...prev, player]);
-  }
-
-  function removePlayer(player) {
-    const id = player.id || player.player_id;
-    setRoster((prev) => prev.filter((r) => (r.id || r.player_id) !== id));
-  }
+  function addPlayer(p)    { if (canAdd(p)) setRoster(prev=>[...prev,p]); }
+  function removePlayer(p) { setRoster(prev=>prev.filter(r=>getId(r)!==getId(p))); }
 
   async function handleSave() {
-    setSaving(true);
-    setSaveMsg("");
-    try {
-      await saveRoster(user.uid, leagueId, roster);
-      setSaveMsg("Roster saved!");
-    } catch (e) {
-      setSaveMsg("Error: " + e.message);
-    } finally {
-      setSaving(false);
-    }
+    setSaving(true); setSaveMsg({});
+    try { await saveRoster(user.uid,leagueId,roster); setSaveMsg({type:"success",text:"Roster saved!"}); }
+    catch(e) { setSaveMsg({type:"error",text:e.message}); }
+    finally { setSaving(false); }
   }
 
   async function handleLock() {
-    if (!window.confirm("Lock your roster? You won't be able to make changes after locking.")) return;
+    if (!window.confirm("Lock your roster? No changes after this.")) return;
     setSaving(true);
     try {
-      await saveRoster(user.uid, leagueId, roster);
-      await lockRoster(user.uid, leagueId);
-      setLocked(true);
-      setSaveMsg("Roster locked!");
-    } catch (e) {
-      setSaveMsg("Error: " + e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function viewPlayerDetail(player) {
-    const id = player.id || player.player_id;
-    if (!id) return;
-    setLoadingDetail(true);
-    setSelectedPlayer({ ...player });
-    try {
-      const detail = await getPlayer(id);
-      setSelectedPlayer((prev) => ({ ...prev, ...detail, detail: true }));
-    } catch (e) {
-      // keep basic info
-    } finally {
-      setLoadingDetail(false);
-    }
-  }
-
-  const maxPlayersPerTeam = league?.settings?.maxPlayersPerTeam || 2;
-
-  function getTeamCount(teamName) {
-    return roster.filter((r) => (r.team || r.current_team) === teamName).length;
-  }
-
-  function isTeamMaxed(player) {
-    const team = player.team || player.current_team;
-    if (!team) return false;
-    return getTeamCount(team) >= maxPlayersPerTeam;
+      await saveRoster(user.uid,leagueId,roster);
+      await lockRoster(user.uid,leagueId);
+      setLocked(true); setSaveMsg({type:"success",text:"Roster locked! Good luck!"});
+    } catch(e) { setSaveMsg({type:"error",text:e.message}); }
+    finally { setSaving(false); }
   }
 
   return (
     <div className="page">
-      {/* Back Button */}
-      <div style={{ marginBottom: "1rem" }}>
-        <Link to={`/league/${leagueId}`} className="btn btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-          ← Back to League
-        </Link>
+      {/* Breadcrumb */}
+      <div style={{ marginBottom:"1.25rem" }}>
+        <div style={{ color:"var(--text2)", fontSize:"0.76rem", marginBottom:"0.5rem" }}>
+          <Link to="/">Home</Link> / <Link to={`/league/${leagueId}`}>{league?.name||"League"}</Link> / Draft
+        </div>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:"1rem", flexWrap:"wrap" }}>
+          <div>
+            <h1>Draft Your Roster</h1>
+            <p style={{ color:"var(--text2)", fontSize:"0.85rem", marginTop:"0.25rem" }}>
+              Pick {rosterSize} players · Max {maxPerTeam} per team · Click <strong>Info</strong> for full stats &amp; match history
+            </p>
+          </div>
+          {locked && <span className="badge badge-green" style={{padding:"0.4rem 0.8rem",fontSize:"0.82rem"}}>🔒 Locked</span>}
+        </div>
       </div>
 
-      <div style={{ marginBottom: "1.5rem" }}>
-        <div style={{ color: "var(--text2)", fontSize: "0.82rem", marginBottom: "0.25rem" }}>
-          <Link to="/">Home</Link> / <Link to={`/league/${leagueId}`}>{league?.name || "League"}</Link> / Draft
-        </div>
-        <h1>Draft Your Roster</h1>
-        <p style={{ color: "var(--text2)", marginTop: "0.25rem", fontSize: "0.9rem" }}>
-          Pick {rosterSize} players · Max {maxPlayersPerTeam} per team
-        </p>
-      </div>
-
-      {locked && (
-        <div className="success-msg" style={{ marginBottom: "1rem" }}>
-          ✅ Your roster is locked in. Good luck!
-        </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "1.5rem" }}>
-
-        {/* Left: Player search */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 310px", gap:"1.5rem" }}>
+        {/* Player list */}
         <div>
-          {/* Filters */}
-          <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-            <input
-              placeholder="Search player or team…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ flex: 1, minWidth: 200 }}
-            />
-            <select value={region} onChange={(e) => { setRegion(e.target.value); setPage(1); }} style={{ width: 100 }}>
-              {REGIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          <div style={{ display:"flex", gap:"0.55rem", marginBottom:"0.9rem", flexWrap:"wrap" }}>
+            <input placeholder="Search player, IGN or team…" value={search} onChange={e=>setSearch(e.target.value)} style={{flex:1,minWidth:170}}/>
+            <select value={region} onChange={e=>{setRegion(e.target.value);setPage(1);}} style={{width:130}}>
+              {REGIONS.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
 
-          {apiError && <div className="error-msg" style={{ marginBottom: "1rem" }}>{apiError}</div>}
+          {apiErr && <div className="alert alert-error" style={{marginBottom:"0.75rem"}}>{apiErr}</div>}
 
-          {loadingPlayers ? (
-            <div className="spinner" />
+          {loadingP ? (
+            <div style={{display:"flex",flexDirection:"column",gap:"0.45rem"}}>
+              {Array.from({length:8}).map((_,i)=>(
+                <div key={i} style={{height:56,borderRadius:"var(--radius-sm)",background:"var(--bg2)",border:"1px solid var(--border)",opacity:0.5+(i*0.05)}}/>
+              ))}
+            </div>
           ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {filteredPlayers.map((player) => {
-                  const id = player.id || player.player_id;
-                  const onRoster = isOnRoster(player);
-                  const teamMaxed = isTeamMaxed(player);
-                  const full = roster.length >= rosterSize && !onRoster;
-                  const disabled = locked || full || (teamMaxed && !onRoster);
+              <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+                {filtered.map(player => {
+                  const onR  = isOnRoster(player);
+                  const tMax = teamMaxed(player) && !onR;
+                  const rFull= roster.length>=rosterSize && !onR;
+                  const team = player.team||player.current_team||"";
+                  const reg  = player.region||"";
 
                   return (
-                    <div
-                      key={id || player.ign}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.75rem",
-                        padding: "0.65rem 0.85rem",
-                        background: onRoster ? "#ff465510" : "var(--bg2)",
-                        border: `1px solid ${onRoster ? "var(--accent)" : "var(--border)"}`,
-                        borderRadius: "var(--radius-sm)",
-                        transition: "border-color 0.15s",
-                      }}
-                    >
-                      {player.img && (
-                        <img src={player.img} alt="" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", background: "var(--border)", flexShrink: 0 }} />
-                      )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: "0.9rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {player.ign || player.alias || player.name}
+                    <div key={getId(player)} className={`player-row ${onR?"on-roster":""}`}>
+                      <Avatar p={player}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:"0.88rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {player.ign||player.alias||player.name}
                         </div>
-                        <div style={{ color: "var(--text2)", fontSize: "0.76rem" }}>
-                          {player.team || player.current_team || "Free Agent"} · {player.country || player.region || ""}
+                        <div style={{display:"flex",gap:"0.3rem",marginTop:"0.12rem",flexWrap:"wrap"}}>
+                          {team && <span className="badge badge-gray" style={{fontSize:"0.62rem"}}>{team}</span>}
+                          {reg  && <span className="badge badge-blue" style={{fontSize:"0.62rem"}}>{reg.toUpperCase()}</span>}
+                          {player.country && <span style={{fontSize:"0.68rem",color:"var(--text2)"}}>{player.country}</span>}
                         </div>
                       </div>
-                      <button
-                        className="btn btn-sm"
-                        style={{ opacity: disabled ? 0.4 : 1 }}
-                        disabled={disabled}
-                        onClick={() => onRoster ? removePlayer(player) : addPlayer(player)}
-                      >
-                        {onRoster ? "Remove" : teamMaxed ? "Team full" : full ? "Roster full" : "Add"}
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => viewPlayerDetail(player)}
-                        style={{ minWidth: 60 }}
-                      >
-                        Info
-                      </button>
+                      <div style={{display:"flex",gap:"0.35rem",flexShrink:0}}>
+                        <button
+                          className={`btn btn-sm ${onR?"":"btn-accent"}`}
+                          disabled={locked||rFull||(tMax&&!onR)}
+                          style={{opacity:(locked||rFull||tMax)&&!onR?0.4:1}}
+                          onClick={()=>onR?removePlayer(player):addPlayer(player)}
+                        >
+                          {onR?"Remove":tMax?"Team full":rFull?"Full":"Add"}
+                        </button>
+                        <button className="btn btn-sm btn-ghost" onClick={()=>setSelPlayer(player)}>Info</button>
+                      </div>
                     </div>
                   );
                 })}
+                {filtered.length===0 && <div style={{color:"var(--text2)",textAlign:"center",padding:"2rem"}}>No players found.</div>}
               </div>
-
-              {/* Pagination */}
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem", justifyContent: "center" }}>
-                <button className="btn btn-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
-                <span style={{ padding: "0.35rem 0.8rem", color: "var(--text2)", fontSize: "0.85rem" }}>Page {page}</span>
-                <button className="btn btn-sm" onClick={() => setPage((p) => p + 1)} disabled={filteredPlayers.length < 30}>Next →</button>
+              <div style={{display:"flex",gap:"0.5rem",marginTop:"1rem",justifyContent:"center",alignItems:"center"}}>
+                <button className="btn btn-sm" onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>← Prev</button>
+                <span style={{fontSize:"0.82rem",color:"var(--text2)",padding:"0 0.5rem"}}>Page {page}</span>
+                <button className="btn btn-sm" onClick={()=>setPage(p=>p+1)} disabled={filtered.length<30}>Next →</button>
               </div>
             </>
           )}
         </div>
 
-        {/* Right: My roster */}
-        <div>
-          <div className="card" style={{ position: "sticky", top: 70 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h2>My Roster</h2>
-              <span style={{ color: "var(--text2)", fontSize: "0.85rem" }}>{roster.length}/{rosterSize}</span>
+        {/* My roster */}
+        <div style={{position:"sticky",top:"calc(var(--nav-h) + 1rem)"}}>
+          <div className="card">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.9rem"}}>
+              <h3>My Roster</h3>
+              <span style={{fontFamily:"'Rajdhani',sans-serif",fontWeight:700,fontSize:"1.1rem"}}>
+                <span style={{color:roster.length===rosterSize?"var(--green)":"var(--text)"}}>{roster.length}</span>
+                <span style={{color:"var(--text2)"}}>/{rosterSize}</span>
+              </span>
             </div>
 
-            {/* Slots */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem" }}>
-              {Array.from({ length: rosterSize }).map((_, i) => {
-                const p = roster[i];
+            <div style={{display:"flex",flexDirection:"column",gap:"0.4rem",marginBottom:"0.9rem"}}>
+              {Array.from({length:rosterSize}).map((_,i)=>{
+                const p=roster[i];
                 return (
                   <div key={i} style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.6rem",
-                    padding: "0.55rem 0.75rem",
-                    background: p ? "var(--bg3)" : "var(--bg)",
-                    border: `1px dashed ${p ? "var(--border)" : "var(--border)"}`,
-                    borderRadius: "var(--radius-sm)",
-                    minHeight: 44,
+                    display:"flex",alignItems:"center",gap:"0.55rem",
+                    padding:"0.45rem 0.65rem",
+                    background:p?"var(--bg3)":"transparent",
+                    border:`1px ${p?"solid":"dashed"} ${p?"var(--border2)":"var(--border)"}`,
+                    borderRadius:"var(--radius-sm)",minHeight:44,
                   }}>
-                    <span style={{ color: "var(--text2)", fontSize: "0.75rem", width: 16 }}>{i + 1}</span>
+                    <span style={{color:"var(--text3)",fontSize:"0.7rem",width:14,flexShrink:0,textAlign:"center"}}>{i+1}</span>
                     {p ? (
                       <>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{p.ign || p.alias || p.name}</div>
-                          <div style={{ color: "var(--text2)", fontSize: "0.72rem" }}>
-                            {p.team || p.current_team || "Free Agent"} · {p.country || p.region || ""}
-                          </div>
+                        <Avatar p={p} size={26}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:"0.8rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.ign||p.alias||p.name}</div>
+                          <div style={{fontSize:"0.67rem",color:"var(--text2)"}}>{p.team||p.current_team||"—"}</div>
                         </div>
-                        {!locked && (
-                          <button className="btn btn-sm" style={{ padding: "0.2rem 0.5rem", opacity: 0.7 }} onClick={() => removePlayer(p)}>×</button>
-                        )}
+                        {!locked && <button className="btn btn-ghost btn-icon" onClick={()=>removePlayer(p)} style={{color:"var(--text2)",fontSize:"0.95rem",lineHeight:1,padding:"0.15rem 0.35rem"}}>×</button>}
                       </>
                     ) : (
-                      <span style={{ color: "var(--text2)", fontSize: "0.8rem" }}>Empty slot</span>
+                      <span style={{color:"var(--text3)",fontSize:"0.77rem"}}>Empty slot</span>
                     )}
                   </div>
                 );
               })}
             </div>
 
-            {saveMsg && (
-              <div className={saveMsg.startsWith("Error") ? "error-msg" : "success-msg"} style={{ marginBottom: "0.75rem", fontSize: "0.82rem" }}>
-                {saveMsg}
-              </div>
+            {saveMsg.text && (
+              <div className={`alert ${saveMsg.type==="error"?"alert-error":"alert-success"}`} style={{marginBottom:"0.65rem",fontSize:"0.8rem"}}>{saveMsg.text}</div>
             )}
 
-            {!locked && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <button className="btn" onClick={handleSave} disabled={saving || roster.length === 0}>
-                  {saving ? "Saving…" : "Save roster"}
+            {!locked ? (
+              <div style={{display:"flex",flexDirection:"column",gap:"0.45rem"}}>
+                <button className="btn" onClick={handleSave} disabled={saving||roster.length===0}>{saving?"Saving…":"Save roster"}</button>
+                <button className="btn btn-accent" onClick={handleLock} disabled={saving||roster.length!==rosterSize}>
+                  🔒 Lock Roster ({roster.length}/{rosterSize})
                 </button>
-                <button
-                  className="btn btn-accent"
-                  onClick={handleLock}
-                  disabled={saving || roster.length !== rosterSize}
-                  title={roster.length !== rosterSize ? `Fill all ${rosterSize} slots to lock` : ""}
-                >
-                  🔒 Lock roster ({roster.length}/{rosterSize})
-                </button>
-              </div>
-            )}
-
-            {locked && (
-              <div style={{ textAlign: "center", color: "var(--green)", fontSize: "0.88rem", padding: "0.5rem" }}>
-                ✅ Roster locked
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Matches for Research */}
-      <div className="card" style={{ marginTop: "2rem" }}>
-        <h2>Recent Matches (Research)</h2>
-        <p style={{ color: "var(--text2)", fontSize: "0.9rem", marginBottom: "1rem" }}>
-          Review recent match results to inform your player selections
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
-          {recentMatches.slice(0, 6).map((match) => (
-            <div key={match.id} style={{
-              padding: "1rem",
-              background: "var(--bg2)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)"
-            }}>
-              <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
-                {match.team1 || match.teams?.[0]?.name} vs {match.team2 || match.teams?.[1]?.name}
-              </div>
-              <div style={{ color: "var(--text2)", fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-                {match.score || `${match.winner} won`}
-              </div>
-              <div style={{ color: "var(--text2)", fontSize: "0.8rem" }}>
-                {match.date ? new Date(match.date).toLocaleDateString() : 'Recent'} · {match.tournament || match.event || 'VCT'}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Player detail modal */}
-      {selectedPlayer && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem",
-        }} onClick={() => setSelectedPlayer(null)}>
-          <div className="card" style={{ maxWidth: 480, width: "100%", position: "relative" }} onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setSelectedPlayer(null)} style={{ position: "absolute", top: "1rem", right: "1rem", background: "none", border: "none", color: "var(--text2)", fontSize: "1.2rem" }}>×</button>
-
-            <div style={{ display: "flex", gap: "1rem", marginBottom: "1.25rem", alignItems: "center" }}>
-              {selectedPlayer.img && (
-                <img src={selectedPlayer.img} alt="" style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--border)" }} />
-              )}
-              <div>
-                <h2>{selectedPlayer.ign || selectedPlayer.alias || selectedPlayer.name}</h2>
-                <div style={{ color: "var(--text2)", fontSize: "0.83rem" }}>
-                  {selectedPlayer.team || selectedPlayer.current_team || "Free Agent"} · {selectedPlayer.country || ""}
-                </div>
-              </div>
-            </div>
-
-            {loadingDetail ? (
-              <div className="spinner" style={{ margin: "1rem auto" }} />
-            ) : (
-              selectedPlayer.detail && selectedPlayer.stats ? (
-                <div>
-                  <h3 style={{ marginBottom: "0.75rem" }}>Agent stats (last 60 days)</h3>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
-                    {(selectedPlayer.stats?.agents || []).slice(0, 5).map((a) => (
-                      <span key={a.agent} className="badge badge-blue">{a.agent} ({a.games}g)</span>
-                    ))}
-                  </div>
-                  
-                  {selectedPlayer.stats?.acs && (
-                    <div style={{ marginBottom: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                      <span className="stat-pill"><span className="stat-label">ACS</span> {selectedPlayer.stats.acs}</span>
-                      <span className="stat-pill"><span className="stat-label">K/D</span> {selectedPlayer.stats.kd}</span>
-                      <span className="stat-pill"><span className="stat-label">HS%</span> {selectedPlayer.stats.hs}%</span>
-                      <span className="stat-pill"><span className="stat-label">KPR</span> {selectedPlayer.stats.kpr}</span>
-                    </div>
-                  )}
-
-                  {/* Historical Performance Chart */}
-                  {selectedPlayer.stats?.recent_matches && selectedPlayer.stats.recent_matches.length > 0 && (
-                    <div style={{ marginTop: "1.5rem" }}>
-                      <h3 style={{ marginBottom: "0.75rem" }}>Recent Match Performance</h3>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <LineChart data={selectedPlayer.stats.recent_matches.slice(-10)}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                          <XAxis 
-                            dataKey="date" 
-                            stroke="var(--text2)" 
-                            fontSize={12}
-                            tickFormatter={(date) => new Date(date).toLocaleDateString()}
-                          />
-                          <YAxis stroke="var(--text2)" fontSize={12} />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
-                            labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="acs" 
-                            stroke="var(--accent)" 
-                            strokeWidth={2}
-                            name="ACS"
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="kills" 
-                            stroke="#ff4655" 
-                            strokeWidth={2}
-                            name="Kills"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-
-                  {/* Agent Performance Chart */}
-                  {selectedPlayer.stats?.agents && selectedPlayer.stats.agents.length > 0 && (
-                    <div style={{ marginTop: "1.5rem" }}>
-                      <h3 style={{ marginBottom: "0.75rem" }}>Agent Performance</h3>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={selectedPlayer.stats.agents.slice(0, 5)}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                          <XAxis 
-                            dataKey="agent" 
-                            stroke="var(--text2)" 
-                            fontSize={12}
-                          />
-                          <YAxis stroke="var(--text2)" fontSize={12} />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
-                          />
-                          <Bar dataKey="acs" fill="var(--accent)" name="ACS" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p style={{ color: "var(--text2)", fontSize: "0.85rem" }}>
-                  No detailed stats available. Player will still earn fantasy points from match results.
+                <p style={{color:"var(--text2)",fontSize:"0.7rem",textAlign:"center",lineHeight:1.4}}>
+                  Save anytime. Lock before matches start — no changes after.
                 </p>
-              )
+              </div>
+            ) : (
+              <div style={{textAlign:"center",padding:"0.5rem"}}>
+                <span className="badge badge-green" style={{padding:"0.4rem 0.8rem",fontSize:"0.82rem"}}>✅ Locked</span>
+                <p style={{color:"var(--text2)",fontSize:"0.73rem",marginTop:"0.4rem"}}>Points update automatically after each match.</p>
+              </div>
             )}
-
-            <div style={{ marginTop: "1.25rem", display: "flex", gap: "0.75rem" }}>
-              {!locked && (
-                isOnRoster(selectedPlayer)
-                  ? <button className="btn" onClick={() => { removePlayer(selectedPlayer); setSelectedPlayer(null); }}>Remove from roster</button>
-                  : <button className="btn btn-accent" disabled={roster.length >= rosterSize || isTeamMaxed(selectedPlayer)} onClick={() => { addPlayer(selectedPlayer); setSelectedPlayer(null); }}>Add to roster</button>
-              )}
-              <button className="btn" onClick={() => setSelectedPlayer(null)}>Close</button>
-            </div>
           </div>
         </div>
+      </div>
+
+      {selPlayer && (
+        <PlayerModal
+          player={selPlayer}
+          onClose={()=>setSelPlayer(null)}
+          onAdd={addPlayer}
+          onRemove={removePlayer}
+          isOnRoster={isOnRoster(selPlayer)}
+          isLocked={locked}
+          canAdd={canAdd(selPlayer)}
+        />
       )}
     </div>
   );
-
-  function isOnRoster(player) {
-    const id = player.id || player.player_id;
-    return roster.some((r) => (r.id || r.player_id) === id);
-  }
 }

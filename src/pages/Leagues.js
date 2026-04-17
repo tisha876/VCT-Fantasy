@@ -1,274 +1,168 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { createLeague, joinLeague, getUserLeagues, getRoster } from "../utils/firestore";
-import { calculateLeaguePoints } from "../utils/pointsCalculator";
+import { createLeague, joinLeague, getUserLeagues } from "../utils/firestore";
+
+const REGIONS = [
+  {value:"all",label:"All regions"},{value:"na",label:"North America"},{value:"eu",label:"Europe"},
+  {value:"ap",label:"Asia-Pacific"},{value:"la",label:"Latin America"},{value:"br",label:"Brazil"},
+  {value:"kr",label:"Korea"},{value:"jp",label:"Japan"},
+];
 
 export default function Leagues() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [leaguePoints, setLeaguePoints] = useState({}); // Map of leagueId -> points
-  const [tab, setTab] = useState("leagues"); // leagues | create | join
-  const [leagueName, setLeagueName] = useState("");
-  const [region, setRegion] = useState("all");
-  const [rosterSize, setRosterSize] = useState(5);
-  const [usePreSeasonPoints, setUsePreSeasonPoints] = useState(false);
+  const [tab, setTab]         = useState("leagues");
+  const [name, setName]       = useState("");
+  const [region, setRegion]   = useState("all");
+  const [rosterSize, setRS]   = useState(5);
   const [joinCode, setJoinCode] = useState("");
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [startPts, setStartPts] = useState(false);
+  const [carryover, setCarryover] = useState(0);
+  const [msg, setMsg]   = useState({type:"",text:""});
   const [working, setWorking] = useState(false);
 
-  useEffect(() => {
-    loadLeagues();
-    // Set up interval to update points every 30 seconds
-    const interval = setInterval(updateLeaguePoints, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function updateLeaguePoints() {
-    try {
-      const data = await getUserLeagues(user.uid);
-      const pointsMap = {};
-      
-      for (const league of data) {
-        try {
-          const roster = await getRoster(user.uid, league.id);
-          const players = roster.players || [];
-          if (players.length > 0) {
-            const result = await calculateLeaguePoints(players);
-            pointsMap[league.id] = result.total || 0;
-          } else {
-            pointsMap[league.id] = 0;
-          }
-        } catch (e) {
-          console.error(`Error calculating points for league ${league.id}:`, e);
-          pointsMap[league.id] = 0;
-        }
-      }
-      
-      setLeaguePoints(pointsMap);
-    } catch (e) {
-      console.error("Error updating league points:", e);
-    }
-  }
-
-  async function loadLeagues() {
+  async function load() {
     setLoading(true);
-    try {
-      const data = await getUserLeagues(user.uid);
-      setLeagues(data);
-      // Calculate points after loading leagues
-      await updateLeaguePoints();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    try { setLeagues(await getUserLeagues(user.uid)); } catch(e){ console.error(e); }
+    setLoading(false);
   }
 
   async function handleCreate(e) {
-    e.preventDefault();
-    if (!leagueName.trim()) return;
-    setWorking(true);
-    setMsg({});
+    e.preventDefault(); setWorking(true); setMsg({});
     try {
-      const { id, code } = await createLeague(user.uid, leagueName.trim(), { region, rosterSize: Number(rosterSize), usePreSeasonPoints });
-      setMsg({ type: "success", text: `League created! Invite code: ${code}` });
-      await loadLeagues();
-      setTimeout(() => navigate(`/league/${id}`), 1500);
-    } catch (e) {
-      setMsg({ type: "error", text: e.message });
-    } finally {
-      setWorking(false);
-    }
+      const {id,code} = await createLeague(user.uid, name.trim(), {region, rosterSize:Number(rosterSize)});
+      setMsg({type:"success",text:`League created! Code: ${code}`});
+      await load();
+      setTimeout(()=>navigate(`/league/${id}`),1400);
+    } catch(e){ setMsg({type:"error",text:e.message}); }
+    finally { setWorking(false); }
   }
 
   async function handleJoin(e) {
-    e.preventDefault();
-    if (!joinCode.trim()) return;
-    setWorking(true);
-    setMsg({});
+    e.preventDefault(); setWorking(true); setMsg({});
     try {
-      const leagueId = await joinLeague(user.uid, joinCode.trim().toUpperCase());
-      setMsg({ type: "success", text: "Joined league successfully!" });
-      await loadLeagues();
-      setTimeout(() => navigate(`/league/${leagueId}`), 1500);
-    } catch (e) {
-      setMsg({ type: "error", text: e.message });
-    } finally {
-      setWorking(false);
-    }
+      const id = await joinLeague(user.uid, joinCode.trim().toUpperCase(), startPts?carryover:0);
+      setMsg({type:"success",text:"Joined!"});
+      await load();
+      setTimeout(()=>navigate(`/league/${id}`),1000);
+    } catch(e){ setMsg({type:"error",text:e.message}); }
+    finally { setWorking(false); }
   }
 
   return (
     <div className="page">
-      <div style={{ marginBottom: "2rem" }}>
-        <h1>My Leagues</h1>
-        <p style={{ color: "var(--text2)", marginTop: "0.25rem" }}>
-          Create or join leagues to compete with friends
-        </p>
+      <div style={{marginBottom:"1.75rem"}}>
+        <div style={{color:"var(--text2)",fontSize:"0.76rem",marginBottom:"0.4rem"}}><Link to="/">Home</Link> / Leagues</div>
+        <h1>Leagues</h1>
+        <p style={{color:"var(--text2)",marginTop:"0.3rem"}}>Create or join private fantasy leagues with friends.</p>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
-        <button
-          className={`btn ${tab === "leagues" ? "btn-accent" : "btn-secondary"}`}
-          onClick={() => setTab("leagues")}
-        >
-          My Leagues ({leagues.length})
-        </button>
-        <button
-          className={`btn ${tab === "create" ? "btn-accent" : "btn-secondary"}`}
-          onClick={() => setTab("create")}
-        >
-          Create League
-        </button>
-        <button
-          className={`btn ${tab === "join" ? "btn-accent" : "btn-secondary"}`}
-          onClick={() => setTab("join")}
-        >
-          Join League
-        </button>
+      <div className="tabs">
+        {[["leagues",`My Leagues (${leagues.length})`],["create","Create League"],["join","Join League"]].map(([k,l])=>(
+          <button key={k} className={`tab-btn ${tab===k?"active":""}`} onClick={()=>{setTab(k);setMsg({});}}>{l}</button>
+        ))}
       </div>
 
-      {msg.text && (
-        <div className={`msg ${msg.type}`} style={{ marginBottom: "1rem" }}>
-          {msg.text}
-        </div>
-      )}
-
-      {tab === "leagues" && (
-        <div>
-          {loading ? (
-            <div className="spinner" />
-          ) : leagues.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "2rem", color: "var(--text2)" }}>
-              <p>You haven't joined any leagues yet.</p>
-              <p style={{ marginTop: "0.5rem" }}>
-                <button className="btn btn-accent" onClick={() => setTab("create")}>
-                  Create your first league
-                </button>
-              </p>
+      {tab==="leagues" && (
+        loading ? <div className="spinner"/> :
+        leagues.length===0 ? (
+          <div className="card" style={{textAlign:"center",padding:"3rem 2rem"}}>
+            <div style={{fontSize:"2.5rem",marginBottom:"0.9rem"}}>🏆</div>
+            <h2 style={{marginBottom:"0.4rem"}}>No leagues yet</h2>
+            <p style={{color:"var(--text2)",marginBottom:"1.5rem",maxWidth:320,margin:"0 auto 1.5rem"}}>Create a league and invite your friends.</p>
+            <div style={{display:"flex",gap:"0.65rem",justifyContent:"center"}}>
+              <button className="btn btn-accent" onClick={()=>setTab("create")}>Create league</button>
+              <button className="btn" onClick={()=>setTab("join")}>Join league</button>
             </div>
-          ) : (
-            <div style={{ display: "grid", gap: "1rem" }}>
-              {leagues.map((league) => (
-                <div key={league.id} className="card">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ margin: 0 }}>{league.name}</h3>
-                      <p style={{ color: "var(--text2)", margin: "0.25rem 0", fontSize: "0.9rem" }}>
-                        {league.members?.length || 1} members · Region: {league.settings?.region || "All"} · Roster: {league.settings?.rosterSize || 5}
-                      </p>
-                      {leaguePoints[league.id] !== undefined && (
-                        <p style={{ color: "var(--accent)", margin: "0.5rem 0 0 0", fontSize: "0.95rem", fontWeight: 600 }}>
-                          💰 Your Points: {leaguePoints[league.id]}
-                        </p>
-                      )}
+          </div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:"0.65rem"}}>
+            {leagues.map(l=>(
+              <Link key={l.id} to={`/league/${l.id}`} style={{textDecoration:"none"}}>
+                <div className="card" style={{display:"flex",alignItems:"center",gap:"1rem",cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(255,70,85,0.4)"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}
+                >
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'Rajdhani',sans-serif",fontWeight:700,fontSize:"1.15rem",marginBottom:"0.3rem"}}>{l.name}</div>
+                    <div style={{display:"flex",gap:"0.35rem",flexWrap:"wrap"}}>
+                      <span className="badge badge-accent" style={{fontFamily:"monospace"}}>{l.code}</span>
+                      <span className="badge badge-gray">{l.members?.length||0} members</span>
+                      <span className="badge badge-purple">{l.settings?.region?.toUpperCase()||"ALL"}</span>
+                      <span className="badge badge-blue">{l.settings?.rosterSize||5}p roster</span>
                     </div>
-                    <Link to={`/league/${league.id}`} className="btn">
-                      View League
-                    </Link>
                   </div>
+                  <div style={{display:"flex",gap:"0.45rem"}}>
+                    <Link to={`/league/${l.id}/draft`} className="btn btn-sm btn-accent" onClick={e=>e.stopPropagation()}>Draft</Link>
+                    <Link to={`/league/${l.id}/leaderboard`} className="btn btn-sm" onClick={e=>e.stopPropagation()}>Board</Link>
+                  </div>
+                  <span style={{color:"var(--text2)"}}>→</span>
                 </div>
-              ))}
-            </div>
-          )}
+              </Link>
+            ))}
+          </div>
+        )
+      )}
+
+      {tab==="create" && (
+        <div style={{maxWidth:480}}>
+          <div className="card">
+            <h2 style={{marginBottom:"1.1rem"}}>Create a league</h2>
+            {msg.text && <div className={`alert ${msg.type==="error"?"alert-error":"alert-success"}`} style={{marginBottom:"0.9rem"}}>{msg.text}</div>}
+            <form onSubmit={handleCreate} style={{display:"flex",flexDirection:"column",gap:"0.9rem"}}>
+              <div><label>League name</label><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. The Immortal League" required/></div>
+              <div><label>Region</label>
+                <select value={region} onChange={e=>setRegion(e.target.value)}>
+                  {REGIONS.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <div><label>Roster size</label>
+                <select value={rosterSize} onChange={e=>setRS(e.target.value)}>
+                  {[3,4,5,6,7].map(n=><option key={n} value={n}>{n} players</option>)}
+                </select>
+              </div>
+              <button className="btn btn-accent" type="submit" disabled={working} style={{justifyContent:"center"}}>{working?"Creating…":"Create league"}</button>
+            </form>
+          </div>
         </div>
       )}
 
-      {tab === "create" && (
-        <div className="card">
-          <h2>Create New League</h2>
-          <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div>
-              <label style={{ display: "block", marginBottom: "0.25rem", fontWeight: 600 }}>
-                League Name
-              </label>
-              <input
-                type="text"
-                value={leagueName}
-                onChange={(e) => setLeagueName(e.target.value)}
-                placeholder="Enter league name"
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+      {tab==="join" && (
+        <div style={{maxWidth:440}}>
+          <div className="card">
+            <h2 style={{marginBottom:"0.5rem"}}>Join a league</h2>
+            <p style={{color:"var(--text2)",fontSize:"0.84rem",marginBottom:"1.1rem"}}>Enter the 6-character invite code from your friend.</p>
+            {msg.text && <div className={`alert ${msg.type==="error"?"alert-error":"alert-success"}`} style={{marginBottom:"0.9rem"}}>{msg.text}</div>}
+            <form onSubmit={handleJoin} style={{display:"flex",flexDirection:"column",gap:"0.9rem"}}>
               <div>
-                <label style={{ display: "block", marginBottom: "0.25rem", fontWeight: 600 }}>
-                  Region
-                </label>
-                <select value={region} onChange={(e) => setRegion(e.target.value)}>
-                  <option value="all">All Regions</option>
-                  <option value="na">North America</option>
-                  <option value="eu">Europe</option>
-                  <option value="ap">Asia Pacific</option>
-                  <option value="la">Latin America</option>
-                  <option value="br">Brazil</option>
-                  <option value="kr">Korea</option>
-                </select>
+                <label>Invite code</label>
+                <input value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase())} placeholder="AB3X9Z" maxLength={6}
+                  style={{letterSpacing:"0.2em",fontFamily:"monospace",fontWeight:700,fontSize:"1.2rem",textAlign:"center"}} required/>
               </div>
 
-              <div>
-                <label style={{ display: "block", marginBottom: "0.25rem", fontWeight: 600 }}>
-                  Roster Size
+              {/* Late-joiner option */}
+              <div style={{padding:"0.85rem",background:"var(--bg3)",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)"}}>
+                <label style={{display:"flex",alignItems:"center",gap:"0.55rem",cursor:"pointer",textTransform:"none",letterSpacing:0,fontWeight:500,fontSize:"0.86rem",color:"var(--text)",marginBottom:0}}>
+                  <input type="checkbox" checked={startPts} onChange={e=>setStartPts(e.target.checked)}/>
+                  Joining mid-season? Start with carry-over points
                 </label>
-                <select value={rosterSize} onChange={(e) => setRosterSize(e.target.value)}>
-                  <option value={3}>3 players</option>
-                  <option value={5}>5 players</option>
-                  <option value={7}>7 players</option>
-                  <option value={10}>10 players</option>
-                </select>
+                {startPts && (
+                  <div style={{marginTop:"0.7rem"}}>
+                    <label>Starting points (agreed with league owner)</label>
+                    <input type="number" min={0} value={carryover} onChange={e=>setCarryover(Number(e.target.value))} placeholder="e.g. 250"/>
+                    <p style={{color:"var(--text2)",fontSize:"0.72rem",marginTop:"0.35rem"}}>Confirm this number with the owner first.</p>
+                  </div>
+                )}
               </div>
-            </div>
 
-            <div>
-              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <input
-                  type="checkbox"
-                  checked={usePreSeasonPoints}
-                  onChange={(e) => setUsePreSeasonPoints(e.target.checked)}
-                />
-                Include pre-season points
-              </label>
-              <p style={{ color: "var(--text2)", fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                If checked, players will start with points earned from matches before the league was created
-              </p>
-            </div>
-
-            <button type="submit" className="btn btn-accent" disabled={working}>
-              {working ? "Creating…" : "Create League"}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {tab === "join" && (
-        <div className="card">
-          <h2>Join League</h2>
-          <form onSubmit={handleJoin} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div>
-              <label style={{ display: "block", marginBottom: "0.25rem", fontWeight: 600 }}>
-                Invite Code
-              </label>
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                placeholder="Enter 6-character code"
-                maxLength={6}
-                required
-                style={{ width: "100%", textTransform: "uppercase" }}
-              />
-            </div>
-
-            <button type="submit" className="btn btn-accent" disabled={working}>
-              {working ? "Joining…" : "Join League"}
-            </button>
-          </form>
+              <button className="btn btn-accent" type="submit" disabled={working} style={{justifyContent:"center"}}>{working?"Joining…":"Join league"}</button>
+            </form>
+          </div>
         </div>
       )}
     </div>
