@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { auth, googleProvider, db } from "../firebase";
+import { auth, googleProvider, db } from "../utils/firebase";
 import {
   signInWithPopup,
   signOut,
