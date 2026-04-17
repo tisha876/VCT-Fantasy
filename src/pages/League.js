@@ -378,11 +378,22 @@ function AddEventForm({ leagueId, onAdded }) {
 
   return (
     <div className="card" style={{marginBottom:"1rem"}}>
-      <h3 style={{marginBottom:"0.75rem"}}>Add Match Event <span style={{color:"var(--text2)",fontSize:"0.75rem",fontWeight:400"}}>(Owner only)</span></h3>
+      <h3 style={{ marginBottom: "0.75rem" }}>
+  Add Match Event{" "}
+  <span
+    style={{
+      color: "var(--text2)",
+      fontSize: "0.75rem",
+      fontWeight: 400
+    }}
+  >
+    (Owner only)
+  </span>
+</h3>
       <p style={{color:"var(--text2)",fontSize:"0.8rem",marginBottom:"0.9rem"}}>
         Enter a VLR match ID to add an event. Points will auto-calculate after the match ends.
         <br/>
-        Find match IDs in the URL on VLR, e.g. <
+        Find match IDs in the URL on VLR, e.g. 
          <span style={{fontFamily:"monospace"}}>vlr.gg/&lt;matchId&gt;</span>
       </p>
       {msg && <div className="alert alert-info" style={{marginBottom:"0.7rem",fontSize:"0.8rem"}}>{msg}</div>}
