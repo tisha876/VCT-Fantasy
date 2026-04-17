@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/VCT-Fantasy/static/css/main.f6654b4b.css",
+    "main.js": "/VCT-Fantasy/static/js/main.7f8226fa.js",
+    "index.html": "/VCT-Fantasy/index.html",
+    "main.f6654b4b.css.map": "/VCT-Fantasy/static/css/main.f6654b4b.css.map",
+    "main.7f8226fa.js.map": "/VCT-Fantasy/static/js/main.7f8226fa.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.f6654b4b.css",
+    "static/js/main.7f8226fa.js"
+  ]
+}
