@@ -306,14 +306,21 @@ export async function upsertUserProfile(userId, data) {
 }
 
 export async function getUserGameweekHistory(userId) {
-  const snap = await getDocs(
-    query(
-      collection(db, 'gameweekHistory'),
-      where('userId', '==', userId),
-      orderBy('gwNumber')
-    )
-  );
-  return snap.docs.map(d => d.data());
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'gameweekHistory'),
+        where('userId', '==', userId),
+        orderBy('gwNumber')
+      )
+    );
+    return snap.docs.map(d => d.data());
+  } catch (err) {
+    // Missing composite index — deploy firestore indexes or click the link in
+    // the console error to create it: firebase deploy --only firestore:indexes
+    console.warn('getUserGameweekHistory: index not ready yet, returning empty.', err.message);
+    return [];
+  }
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────────

@@ -17,13 +17,6 @@
       ]
     },
     {
-      "collectionGroup": "rosters",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "totalPoints", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "notifications",
       "queryScope": "COLLECTION",
       "fields": [
@@ -38,13 +31,6 @@
       "fields": [
         { "fieldPath": "userId",   "order": "ASCENDING" },
         { "fieldPath": "gwNumber", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "leagues",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "members",   "arrayConfig": "CONTAINS" }
       ]
     }
   ],
