@@ -1,8 +1,8 @@
 // src/pages/Leagues.jsx
 import React, { useState, useEffect } from 'react';
-import { useApp } from './AppContext';
-import { createLeague, joinLeague, subscribeLeaderboard, getH2HRecord, getGameweekLeaderboard } from './firestore';
-import { SkeletonCard, EmptyState, PlayerAvatarCircle, useToast, Toast } from './UI';
+import { useApp } from '../context/AppContext';
+import { createLeague, joinLeague, subscribeLeaderboard, getH2HRecord, getGameweekLeaderboard } from '../utils/firestore';
+import { SkeletonCard, EmptyState, PlayerAvatarCircle, useToast, Toast } from '../components/UI';
 
 export default function Leagues() {
   const { user, myLeagues, refreshLeagues, activeLeagueId, setActiveLeagueId, currentGameweek } = useApp();

@@ -4,7 +4,7 @@ import {
   getLiveMatches, getUpcomingMatches, getResults,
   getMatchDetails, getPlayerStats, getRankings,
   normaliseLiveMatch, normaliseStatSegment
-} from './vlrApi';
+} from '../utils/vlrApi';
 
 function useAsync(fetcher, deps = []) {
   const [data, setData] = useState(null);

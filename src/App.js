@@ -1,17 +1,17 @@
 // src/App.js
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppProvider, useApp } from './AppContext';
-import AppShell from './AppShell';
-import Dashboard    from './Dashboard';
-import LiveMatches  from './LiveMatches';
-import MyTeam       from './MyTeam';
-import Leagues      from './Leagues';
-import PlayerScout  from './PlayerScout';
-import Profile      from './Profile';
-import ScoringRules from './ScoringRules';
-import Login        from './Login';
-import './index.css';
+import { AppProvider, useApp } from './context/AppContext';
+import AppShell from './components/AppShell';
+import Dashboard    from './pages/Dashboard';
+import LiveMatches  from './pages/LiveMatches';
+import MyTeam       from './pages/MyTeam';
+import Leagues      from './pages/Leagues';
+import PlayerScout  from './pages/PlayerScout';
+import Profile      from './pages/Profile';
+import ScoringRules from './pages/ScoringRules';
+import Login        from './pages/Login';
+import './styles/index.css';
 
 function ProtectedRoute({ children }) {
   const { user, authLoading } = useApp();

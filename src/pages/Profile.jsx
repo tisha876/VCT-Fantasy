@@ -1,10 +1,10 @@
 // src/pages/Profile.jsx
 import React, { useEffect, useState } from 'react';
-import { useApp } from './AppContext';
-import { getUserGameweekHistory, upsertUserProfile } from './firestore';
-import { SkeletonCard, useToast, Toast } from './UI';
+import { useApp } from '../context/AppContext';
+import { getUserGameweekHistory, upsertUserProfile } from '../utils/firestore';
+import { SkeletonCard, useToast, Toast } from '../components/UI';
 import { signOut } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth } from '../firebase';
 
 export default function Profile() {
   const { user, userProfile, setUserProfile } = useApp();

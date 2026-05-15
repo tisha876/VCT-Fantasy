@@ -2,8 +2,8 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
-import { auth } from './firebase';
-import { useApp } from './AppContext';
+import { auth } from '../firebase';
+import { useApp } from '../context/AppContext';
 import { PlayerAvatarCircle } from './UI';
 
 const NAV_ITEMS = [

@@ -1,12 +1,12 @@
 // src/pages/MyTeam.jsx
 import React, { useEffect, useState } from 'react';
-import { useApp } from './AppContext';
-import { subscribeRoster, updateRoster, makeTransfer, activateChip } from './firestore';
-import { usePlayerStats } from './useVLR';
+import { useApp } from '../context/AppContext';
+import { subscribeRoster, updateRoster, makeTransfer, activateChip } from '../utils/firestore';
+import { usePlayerStats } from '../hooks/useVLR';
 import {
   GameweekBanner, SkeletonCard, ChipSelector, TransferModal, EmptyState,
   PlayerAvatarCircle, RoleBadge, FormIndicator, useToast, Toast
-} from './UI';
+} from '../components/UI';
 import { Link } from 'react-router-dom';
 
 export default function MyTeam() {
@@ -236,7 +236,7 @@ function PlayerSlot({ playerId, isCaptain, onOpen, onSetCaptain }) {
       className={`player-slot filled${isCaptain ? ' captain' : ''}`}
       onClick={onOpen}
     >
-      <div className="slot-avatar" style={{ background: require('./UI').avatarColor(playerId) }}>
+      <div className="slot-avatar" style={{ background: require('../components/UI').avatarColor(playerId) }}>
         {playerId.slice(0, 2).toUpperCase()}
       </div>
       {isCaptain ? <div className="slot-cap-tag">★ Captain</div> : <div style={{ height: 13 }} />}

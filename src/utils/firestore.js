@@ -4,7 +4,7 @@ import {
   query, where, orderBy, limit, onSnapshot, serverTimestamp,
   increment, arrayUnion, deleteField, writeBatch
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db } from '../firebase';
 import { calcFantasyPoints, normaliseStatSegment } from './vlrApi';
 
 // ─── Gameweeks ───────────────────────────────────────────────────────────────

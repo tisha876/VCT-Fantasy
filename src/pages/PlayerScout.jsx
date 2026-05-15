@@ -1,7 +1,7 @@
 // src/pages/PlayerScout.jsx
 import React, { useState, useMemo } from 'react';
-import { usePlayerStats } from './useVLR';
-import { SkeletonCard, FormIndicator, RoleBadge, RegionBadge, PlayerAvatarCircle, EmptyState } from './UI';
+import { usePlayerStats } from '../hooks/useVLR';
+import { SkeletonCard, FormIndicator, RoleBadge, RegionBadge, PlayerAvatarCircle, EmptyState } from '../components/UI';
 
 const REGIONS = ['all','na','eu','ap','la'];
 const SORT_KEYS = { acs: 'ACS', kd: 'K/D', kpr: 'KPR', apr: 'APR', fkpr: 'FK/R', rating: 'Rating' };

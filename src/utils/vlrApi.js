@@ -5,7 +5,7 @@
 // Self-host: http://localhost:3001 (clone axsddlr/vlrggapi and run locally)
 
 import { httpsCallable } from 'firebase/functions';
-import { functions } from './firebase';
+import { functions } from '../firebase';
 
 // ─── Cache ──────────────────────────────────────────────────────────────────
 const CACHE = {};

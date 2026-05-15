@@ -1,10 +1,10 @@
 // src/context/AppContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
-import { getCurrentGameweek } from './firestore';
-import { getUserLeagues } from './firestore';
-import { upsertUserProfile, getUserProfile } from './firestore';
+import { auth } from '../firebase';
+import { getCurrentGameweek } from '../utils/firestore';
+import { getUserLeagues } from '../utils/firestore';
+import { upsertUserProfile, getUserProfile } from '../utils/firestore';
 
 const AppContext = createContext(null);
 

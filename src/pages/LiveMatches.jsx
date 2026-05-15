@@ -1,8 +1,8 @@
 // src/pages/LiveMatches.jsx
 import React, { useState } from 'react';
-import { useLiveMatches, useResults, useMatchDetails } from './useVLR';
-import { SkeletonCard } from './UI';
-import { useApp } from './AppContext';
+import { useLiveMatches, useResults, useMatchDetails } from '../hooks/useVLR';
+import { SkeletonCard } from '../components/UI';
+import { useApp } from '../context/AppContext';
 
 export default function LiveMatches() {
   const { matches: live, loading: liveLoading } = useLiveMatches();

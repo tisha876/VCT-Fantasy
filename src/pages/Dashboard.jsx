@@ -1,10 +1,10 @@
 // src/pages/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApp } from './AppContext';
-import { subscribeRoster, subscribeLeaderboard, getGameweekScore } from './firestore';
-import { useLiveMatches, useUpcomingMatches } from './useVLR';
-import { GameweekBanner, SkeletonCard, PointsAnimator, PlayerAvatarCircle, FormIndicator, avatarColor } from './UI';
+import { useApp } from '../context/AppContext';
+import { subscribeRoster, subscribeLeaderboard, getGameweekScore } from '../utils/firestore';
+import { useLiveMatches, useUpcomingMatches } from '../hooks/useVLR';
+import { GameweekBanner, SkeletonCard, PointsAnimator, PlayerAvatarCircle, FormIndicator, avatarColor } from '../components/UI';
 
 export default function Dashboard() {
   const { user, currentGameweek, activeLeagueId, myLeagues } = useApp();
